@@ -1,0 +1,30 @@
+# Binaries
+/license-tool
+/bin/
+*.exe
+*.test
+*.out
+
+# Private keys MUST NEVER be committed
+*.pem
+*.key
+*-private.*
+private-*.*
+issuer-*.key
+
+# Local license state / issued licenses
+*.lic
+*.license
+/state/
+rollback.state
+
+# Coverage / profiling
+coverage.html
+coverage.out
+*.prof
+
+# OS / editor
+.DS_Store
+*.swp
+.idea/
+.vscode/

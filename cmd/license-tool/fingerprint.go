@@ -1,0 +1,48 @@
+package main
+
+import (
+	"encoding/json"
+	"errors"
+	"flag"
+	"fmt"
+
+	"github.com/soulteary/grantseal/pkg/fingerprint"
+)
+
+func cmdFingerprint(args []string) error {
+	fs := flag.NewFlagSet("fingerprint", flag.ContinueOnError)
+	ns := fs.String("namespace", "", "product namespace (required)")
+	jsonOut := fs.Bool("json", false, "print full fingerprint JSON")
+	code := fs.Bool("request-code", false, "print the human-friendly request code")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *ns == "" {
+		return fmt.Errorf("fingerprint: -namespace is required")
+	}
+	fp, err := fingerprint.Compute(*ns)
+	if err != nil {
+		if errors.Is(err, fingerprint.ErrInsufficientInfo) {
+			return fmt.Errorf("fingerprint: insufficient hardware info on this platform")
+		}
+		return err
+	}
+	if *code {
+		rc, cerr := fingerprint.RequestCode(*ns)
+		if cerr != nil {
+			return cerr
+		}
+		fmt.Println(rc)
+		return nil
+	}
+	if *jsonOut {
+		b, merr := json.MarshalIndent(fp, "", "  ")
+		if merr != nil {
+			return merr
+		}
+		fmt.Println(string(b))
+		return nil
+	}
+	fmt.Println(fp.Fingerprint)
+	return nil
+}

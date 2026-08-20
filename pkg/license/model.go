@@ -1,0 +1,224 @@
+package license
+
+import (
+	"fmt"
+	"time"
+)
+
+// SchemaVersion is the only license schema version this build understands.
+// Unknown schema versions are rejected (no silent downgrade).
+const SchemaVersion = 1
+
+// MaxLicenseFileSize is the hard cap on a license file's size, in bytes.
+// Files larger than this are rejected before any parsing to bound work and
+// mitigate resource-exhaustion attacks.
+const MaxLicenseFileSize = 64 * 1024
+
+// Algorithm is the signature algorithm. Only Ed25519 is permitted.
+type Algorithm string
+
+const AlgorithmEd25519 Algorithm = "Ed25519"
+
+// Valid reports whether the algorithm is the single supported value.
+func (a Algorithm) Valid() bool { return a == AlgorithmEd25519 }
+
+// Edition is a product edition. Unknown values are rejected.
+type Edition string
+
+const (
+	EditionTrial        Edition = "trial"
+	EditionBasic        Edition = "basic"
+	EditionProfessional Edition = "professional"
+	EditionEnterprise   Edition = "enterprise"
+)
+
+// Valid reports whether the edition is on the whitelist.
+func (e Edition) Valid() bool {
+	switch e {
+	case EditionTrial, EditionBasic, EditionProfessional, EditionEnterprise:
+		return true
+	}
+	return false
+}
+
+// LicenseType is the licensing model. Unknown values are rejected.
+type LicenseType string
+
+const (
+	LicenseTypeTrial        LicenseType = "trial"
+	LicenseTypeSubscription LicenseType = "subscription"
+	LicenseTypeLifetime     LicenseType = "lifetime"
+)
+
+// Valid reports whether the license type is on the whitelist.
+func (t LicenseType) Valid() bool {
+	switch t {
+	case LicenseTypeTrial, LicenseTypeSubscription, LicenseTypeLifetime:
+		return true
+	}
+	return false
+}
+
+// DeviceMode describes how a license binds to devices. Unknown values rejected.
+type DeviceMode string
+
+const (
+	DeviceModeNone   DeviceMode = "none"
+	DeviceModeSingle DeviceMode = "single"
+	DeviceModeMulti  DeviceMode = "multi"
+)
+
+// Valid reports whether the device mode is on the whitelist.
+func (m DeviceMode) Valid() bool {
+	switch m {
+	case DeviceModeNone, DeviceModeSingle, DeviceModeMulti:
+		return true
+	}
+	return false
+}
+
+// maxLimitValue bounds any single limit value to reject absurd/overflow values.
+const maxLimitValue = int64(1) << 40 // ~1.09e12, generous but bounded
+
+// DeviceBinding controls device-locking.
+type DeviceBinding struct {
+	Mode      DeviceMode `json:"mode"`
+	DeviceIDs []string   `json:"device_ids,omitempty"`
+}
+
+// VersionConstraint restricts which product versions the license covers.
+// Versions are opaque dotted strings compared component-wise (see version.go).
+type VersionConstraint struct {
+	MinVersion       string     `json:"min_version,omitempty"`
+	MaxVersion       string     `json:"max_version,omitempty"`
+	MaintenanceUntil *time.Time `json:"maintenance_until,omitempty"`
+	// CoveredMaxVersion is the highest product version still covered once the
+	// maintenance window (MaintenanceUntil) has lapsed. While maintenance is
+	// active this field has no effect. After MaintenanceUntil passes, only
+	// builds with version <= CoveredMaxVersion remain covered; any newer build
+	// is rejected as LICENSE_VERSION_UNSUPPORTED.
+	//
+	// Offline limitation: this library cannot observe per-release publish
+	// dates, so it cannot infer which builds shipped before maintenance
+	// lapsed. CoveredMaxVersion makes that boundary explicit as a version
+	// ceiling instead of a date, letting an issuer pin the last covered build.
+	//
+	// Backward compatibility: the field is optional. Licenses issued before
+	// this field existed will not carry it; checkVersion falls back to the
+	// legacy MinVersion-baseline approximation in that case (see validator.go).
+	CoveredMaxVersion string `json:"covered_max_version,omitempty"`
+}
+
+// Payload is the signed license body. Field order here is irrelevant; the
+// canonical form (canonical.go) is what gets signed.
+type Payload struct {
+	SchemaVersion     int               `json:"schema_version"`
+	LicenseID         string            `json:"license_id"`
+	SerialNumber      string            `json:"serial_number"`
+	ProductID         string            `json:"product_id"`
+	CustomerID        string            `json:"customer_id"`
+	CustomerName      string            `json:"customer_name,omitempty"`
+	Edition           Edition           `json:"edition"`
+	LicenseType       LicenseType       `json:"license_type"`
+	IssuedAt          time.Time         `json:"issued_at"`
+	NotBefore         *time.Time        `json:"not_before,omitempty"`
+	ExpiresAt         *time.Time        `json:"expires_at,omitempty"`
+	GracePeriodDays   int               `json:"grace_period_days"`
+	Features          []string          `json:"features,omitempty"`
+	Limits            map[string]int64  `json:"limits,omitempty"`
+	DeviceBinding     DeviceBinding     `json:"device_binding"`
+	VersionConstraint VersionConstraint `json:"version_constraint"`
+	Metadata          map[string]string `json:"metadata,omitempty"`
+	KeyID             string            `json:"key_id"`
+}
+
+// ValidatePayloadStatic runs value-level validation (enums, limits, required
+// fields) on a payload without any time/device/product context. Issuers use it
+// to reject invalid licenses before signing; the client runs it during
+// validation. It never panics.
+func ValidatePayloadStatic(p *Payload) error { return p.validateStatic() }
+
+// validateStatic performs value-level validation that does not depend on the
+// current time, device or product context. It rejects unknown enums and
+// out-of-range limits. It never panics.
+func (p *Payload) validateStatic() error {
+	if p == nil {
+		return newError(CodeMalformed, "nil payload", nil)
+	}
+	if p.SchemaVersion != SchemaVersion {
+		return newError(CodeUnsupportedSchema,
+			fmt.Sprintf("unsupported schema_version %d (want %d)", p.SchemaVersion, SchemaVersion), nil)
+	}
+	if p.LicenseID == "" || p.ProductID == "" || p.KeyID == "" {
+		return newError(CodeMalformed, "missing required field (license_id/product_id/key_id)", nil)
+	}
+	if p.IssuedAt.IsZero() {
+		return newError(CodeMalformed, "missing issued_at", nil)
+	}
+	if !p.Edition.Valid() {
+		return newError(CodeInvalidEnum, fmt.Sprintf("unknown edition %q", p.Edition), nil)
+	}
+	if !p.LicenseType.Valid() {
+		return newError(CodeInvalidEnum, fmt.Sprintf("unknown license_type %q", p.LicenseType), nil)
+	}
+	if !p.DeviceBinding.Mode.Valid() {
+		return newError(CodeInvalidEnum, fmt.Sprintf("unknown device mode %q", p.DeviceBinding.Mode), nil)
+	}
+	if p.DeviceBinding.Mode != DeviceModeNone && len(p.DeviceBinding.DeviceIDs) == 0 {
+		return newError(CodeMalformed, "device binding requires at least one device_id", nil)
+	}
+	if p.GracePeriodDays < 0 || p.GracePeriodDays > 3650 {
+		return newError(CodeInvalidLimits, "grace_period_days out of range [0,3650]", nil)
+	}
+	for k, v := range p.Limits {
+		if k == "" {
+			return newError(CodeInvalidLimits, "empty limit key", nil)
+		}
+		if v < 0 {
+			return newError(CodeInvalidLimits, fmt.Sprintf("negative limit %q", k), nil)
+		}
+		if v > maxLimitValue {
+			return newError(CodeInvalidLimits, fmt.Sprintf("limit %q exceeds maximum", k), nil)
+		}
+	}
+	if p.NotBefore != nil && p.ExpiresAt != nil && p.ExpiresAt.Before(*p.NotBefore) {
+		return newError(CodeMalformed, "expires_at before not_before", nil)
+	}
+
+	// license_type time semantics (security-critical). Enforcing these at the
+	// static layer prevents authorization bypass where a time-limited license
+	// silently becomes perpetual by omitting expires_at, or where a lifetime
+	// license carries a spurious expires_at that would incorrectly expire it.
+	switch p.LicenseType {
+	case LicenseTypeTrial:
+		// A trial MUST have an explicit expiry; otherwise it would never end.
+		if p.ExpiresAt == nil {
+			return newError(CodeMalformed, "trial license requires expires_at", nil)
+		}
+	case LicenseTypeSubscription:
+		// A subscription MUST have an explicit expiry; otherwise it would
+		// silently behave as perpetual.
+		if p.ExpiresAt == nil {
+			return newError(CodeMalformed, "subscription license requires expires_at", nil)
+		}
+	case LicenseTypeLifetime:
+		// A lifetime license is perpetual and must NOT carry expires_at. This
+		// keeps the perpetual guarantee unambiguous and prevents a mis-issued
+		// expires_at from expiring a lifetime license (see validate()).
+		if p.ExpiresAt != nil {
+			return newError(CodeMalformed, "lifetime license must not carry expires_at", nil)
+		}
+	}
+
+	// #10 issued_at vs. not_before / expires_at logical relations. Rules are
+	// deliberately lenient (allow equality) to avoid rejecting legitimately
+	// issued licenses due to sub-second rounding, while still catching clearly
+	// inconsistent time windows.
+	if p.ExpiresAt != nil && p.ExpiresAt.Before(p.IssuedAt) {
+		return newError(CodeMalformed, "expires_at before issued_at", nil)
+	}
+	if p.NotBefore != nil && p.NotBefore.Before(p.IssuedAt) {
+		return newError(CodeMalformed, "not_before before issued_at", nil)
+	}
+	return nil
+}

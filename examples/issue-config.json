@@ -1,0 +1,29 @@
+{
+  "key_id": "k1",
+  "product_id": "acme-app",
+  "customer_id": "cust_00042",
+  "customer_name": "ACME Corporation",
+  "edition": "professional",
+  "license_type": "subscription",
+  "not_before": "2026-01-01T00:00:00Z",
+  "expires_at": "2027-01-01T00:00:00Z",
+  "grace_period_days": 14,
+  "features": ["export_pdf", "webhooks"],
+  "limits": {
+    "max_seats": 50,
+    "max_projects": 200
+  },
+  "device_binding": {
+    "mode": "none"
+  },
+  "version_constraint": {
+    "min_version": "1.0.0",
+    "max_version": "2.0.0",
+    "maintenance_until": "2027-06-30T00:00:00Z",
+    "covered_max_version": "1.9.0"
+  },
+  "metadata": {
+    "order_id": "SO-2026-0192",
+    "region": "eu"
+  }
+}
