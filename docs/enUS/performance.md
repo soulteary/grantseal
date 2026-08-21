@@ -12,7 +12,6 @@ Related docs: [README](./README.md) · [architecture](./architecture.md) · [qua
 
 ## Environment of record
 
-- Commit SHA: `e5c6e93`
 - Date (UTC): 2026-08-21
 - Go version: `go1.26.6`
 - OS / arch: `darwin/arm64`

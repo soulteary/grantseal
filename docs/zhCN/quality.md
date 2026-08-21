@@ -4,22 +4,29 @@
 
 相关文档：[README](./README.md) · [架构](./architecture.md) · [性能](./performance.md) · [安全](../../SECURITY.md)
 
-> **说明。** 下方覆盖率数字由覆盖率工作流基于某个具体提交回填。任何
-> `<!-- FILL: ... -->` 标记或 `TBD` 都是待替换为实测值的占位符——请勿把占位符当作真实
-> 数字。
+> **说明。** 下方生成区块中的覆盖率数字来自唯一机器可读事实来源
+> [`.github/go-test-report.json`](../../.github/go-test-report.json)，经
+> `scripts/generate-quality-docs.sh` 生成。区块以外的说明性文字由人工维护。
 
 ## 记录环境
 
-- Commit SHA：`e5c6e93`
 - 日期（UTC）：2026-08-21
 - Go 版本：`go1.26.6`
 - OS / 架构：`darwin/arm64`
 - 命令：`go test ./... -covermode=atomic -coverprofile=coverage.out && go tool cover -func=coverage.out`
 
+确切的提交与机器数值记录在唯一事实来源
+[`.github/go-test-report.json`](../../.github/go-test-report.json) 中，由覆盖率工作流
+重新生成并提交。下方覆盖率数字由 `scripts/generate-quality-docs.sh` 从该 JSON 生成，
+请勿手工编辑（CI 会运行生成器并在出现 diff 时失败）。
+
+<!-- BEGIN:GENERATED-COVERAGE -->
+<!-- 由 scripts/generate-quality-docs.sh 从 .github/go-test-report.json 生成，请勿手工编辑。 -->
+
 ## 总覆盖率
 
-- **总计：** `77.5%` 语句覆盖率
-- 覆盖率门禁（CI）：`77%`（实测总覆盖率向下取整；确保同一提交不会失败于自身门禁）
+- **总计：** `84.02%` 语句覆盖率（1477/1758）
+- 覆盖率门禁（CI）：`80%`（实测总覆盖率向下取整；确保同一提交不会失败于自身门禁）
 
 根 README 的 Coverage 徽章由 CI 基于同一次运行生成。
 
@@ -27,11 +34,13 @@
 
 | 包 | 覆盖率 |
 | -- | ------ |
-| `pkg/license` | `82.9%` |
-| `pkg/fingerprint` | `90.7%` |
-| `internal/issuer` | `85.4%` |
-| `cmd/license-tool` | `70.7%` |
+| `pkg/license` | `84.9%` |
+| `pkg/fingerprint` | `93.0%` |
+| `internal/issuer` | `78.9%` |
+| `cmd/license-tool` | `80.8%` |
 | `examples/client` | `0.0%`（示例代码，无测试） |
+
+<!-- END:GENERATED-COVERAGE -->
 
 ## 测试矩阵
 
@@ -58,11 +67,11 @@
 
 ## Fuzz 策略
 
-- 现有 fuzz target：`FuzzParseEnvelope`（`pkg/license`）。
-- 新增 fuzz target（`pkg/license/fuzz_targets_test.go`）：canonical 字节 / payload
-  解码、撤销列表解析、回拨状态解析。
+- Fuzz target（`pkg/license`）：`FuzzParseEnvelope`、`FuzzCanonicalBytes`、
+  `FuzzLoadRevocationList`、`FuzzRollbackStateLoad`。
 - 语料与临时 fuzz 文件**不**提交到仓库。
 
-CI 会短暂运行 fuzz target 以确保其可编译、可执行；长时 fuzz 在带外运行。记录运行所用
-的 fuzz 时长：`30s`
-（`go test ./pkg/license -run=^$ -fuzz=FuzzParseEnvelope -fuzztime=30s`，通过，0 崩溃）。
+每次 push/PR 会对全部四个 target 各短时 smoke（`.github/workflows/ci.yml` 中的矩阵
+job，每个 `-fuzztime=30s`）以确保其可编译、可执行。定时工作流
+（`.github/workflows/fuzz-nightly.yml`）会运行更长的 campaign（每 target
+`-fuzztime=10m`），并把发现的 crash 语料作为构建产物归档，便于复现。

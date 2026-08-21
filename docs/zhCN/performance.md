@@ -10,7 +10,6 @@
 
 ## 记录环境
 
-- Commit SHA：`e5c6e93`
 - 日期（UTC）：2026-08-21
 - Go 版本：`go1.26.6`
 - OS / 架构：`darwin/arm64`
