@@ -1,0 +1,21 @@
+# doc-language-allowlist.txt
+#
+# Exemptions for scripts/check-doc-language.sh. Each non-comment line is:
+#
+#   <path-suffix>|||<line-substring>
+#
+# A banned-phrase hit is suppressed ONLY when the matched file path ends with
+# <path-suffix> AND the matched line contains <line-substring>. This lets
+# security docs explain — via negation or quotation — why grantseal avoids
+# hollow quality labels, without weakening the gate elsewhere.
+#
+# Keep this list minimal and justified. Prefer rewording docs over adding
+# exemptions. Add new entries only for genuine negative statements.
+#
+# Example (uncomment and adapt if such a sentence is added to SECURITY.md):
+# SECURITY.md|||not military-grade
+# docs/enUS/SECURITY.md|||not military-grade
+# docs/zhCN/SECURITY.md|||并非
+
+# CHANGELOG documents the REMOVAL of these labels (quotation, not a claim).
+CHANGELOG.md|||in favor of verifiable positioning

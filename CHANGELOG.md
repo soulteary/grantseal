@@ -11,12 +11,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Documentation rewritten to be evidence-based: removed unsubstantiated quality
+  labels ("commercial-grade" / "商业级") in favor of verifiable positioning, and
+  reorganized `README.md`, `docs/enUS/README.md`, and `docs/zhCN/README.md`.
+- Rewrote `SECURITY.md` around an explicit threat table, trust boundaries, and a
+  deployment checklist; synced the `docs/*/SECURITY.md` summaries.
+
+### Added
+
+- Architecture, quality, and performance docs under `docs/enUS/` and
+  `docs/zhCN/` (`architecture.md`, `quality.md`, `performance.md`), backfilled
+  with measured coverage and benchmark numbers from a recorded commit/environment.
+- Benchmarks: `pkg/license/benchmark_test.go` and
+  `pkg/fingerprint/benchmark_test.go` (parse, verify, in-memory validate,
+  validate-with-revocation at 0/100/10000 entries, canonical bytes, cached
+  result, key-ring lookup, fingerprint canonicalization).
+- Expanded tests: `cmd/license-tool` CLI (was 0% coverage), `internal/issuer`,
+  canonical golden vectors, envelope/keyring/rollback/revocation/version/facade
+  edge cases; total statement coverage raised from ~53.6% to 77.5%.
+- Fuzz targets for canonical bytes / payload decode, revocation-list parsing,
+  and rollback-state parsing (in addition to `FuzzParseEnvelope`).
+- CI jobs: coverage gate (`>= 77%`, floor of measured total) with profile
+  artifact, an auto-generated coverage SVG badge (committed only on default
+  branch/tag pushes), doc-language check (blocks unverifiable quality labels),
+  sensitive-file scan (no private keys), Markdown link check, and a benchmark
+  smoke run.
+- Helper scripts under `scripts/`: `check-coverage.sh`, `check-doc-language.sh`
+  (+ `doc-language-allowlist.txt`), `check-sensitive-files.sh`,
+  `gen-coverage-badge.sh`.
+
+No public API, license file format, error code, or CLI behavior changed.
+
 ## [0.1.0]
 
-Initial public release of `grantseal`, a commercial-grade **offline software
-licensing** system written in Go 1.26 using **only the standard library**.
+Initial public release of `grantseal`, an **offline software licensing** system
+written in Go 1.26 using **only the standard library**.
 
-首个公开版本。使用 Go 1.26 **纯标准库**实现的商业级**离线软件授权系统**。
+首个公开版本。使用 Go 1.26 **纯标准库**实现的**离线软件授权系统**。
 
 ### Added
 

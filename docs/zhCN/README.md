@@ -2,9 +2,12 @@
 
 [English](../enUS/README.md) | [中文文档](./README.md) —— 返回[项目 README](../../README.md)
 
-grantseal 是使用 Go 1.26 **纯标准库**实现的商业级离线软件授权系统。它负责签发、
+相关文档：[架构](./architecture.md) · [质量与覆盖率](./quality.md) · [性能](./performance.md) · [安全](../../SECURITY.md)
+
+grantseal 是使用 Go 1.26 **纯标准库**实现的离线软件授权库与 CLI。它负责签发、
 验证与管理基于 **Ed25519** 签名的授权文件，支持设备绑定、功能/额度门禁、带宽限期
-的到期策略、时钟回拨检测以及签名撤销列表。
+的到期策略、时钟回拨检测以及签名撤销列表。它的目标是提高伪造与离线篡改的成本——
+而非让软件不可破解；诚实的边界见 [`../../SECURITY.md`](../../SECURITY.md)。
 
 ## 架构
 
@@ -268,10 +271,11 @@ _ = res.DeviceMatched()     // 设备绑定是否满足
 > 旧写法，仅为避免比较旧字符串的调用方失效而保留；新代码应发出
 > `LICENSE_FEATURE_DENIED`。
 
-## 在线激活（后续扩展）
+## 在线激活（后续扩展 / 路线图）
 
 - 注入基于网络的 `TrustedTimeProvider` 获取权威时间。
 - 通过签名 OTA 通道下发撤销列表 / 公钥更新。
 - 增加设备解绑/重绑接口，便于用户迁移设备。
 
-安全边界与威胁模型详见 [`../../SECURITY.md`](../../SECURITY.md)。
+信任边界与验证顺序见 [`architecture.md`](./architecture.md)；完整威胁模型见
+[`../../SECURITY.md`](../../SECURITY.md)。

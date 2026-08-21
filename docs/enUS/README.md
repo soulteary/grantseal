@@ -2,10 +2,14 @@
 
 [English](./README.md) | [中文文档](../zhCN/README.md) — back to the [project README](../../README.md)
 
-grantseal is a commercial-grade offline software licensing system built with
+Related docs: [architecture](./architecture.md) · [quality & coverage](./quality.md) · [performance](./performance.md) · [security](../../SECURITY.md)
+
+grantseal is an offline software licensing library and CLI built with
 Go 1.26 and **only the standard library**. It issues, verifies, and manages
 Ed25519-signed licenses with device binding, feature/limit gating, expiry with
-grace periods, clock-rollback detection, and signed revocation lists.
+grace periods, clock-rollback detection, and signed revocation lists. Its goal
+is to raise the cost of forgery and offline tampering — not to make software
+uncrackable; see [`../../SECURITY.md`](../../SECURITY.md) for the honest limits.
 
 ## Architecture
 
@@ -316,10 +320,12 @@ part of the public contract and are safe to switch on for UX. Use
 > compared against the old string do not break; new code should emit
 > `LICENSE_FEATURE_DENIED`.
 
-## Online activation (future)
+## Online activation (future / Roadmap)
 
 - Inject a network-backed `TrustedTimeProvider` for authoritative time.
 - Fetch signed revocation lists / public-key updates over a signed OTA channel.
 - Add a device re-binding endpoint so users can move licenses between machines.
 
-See [`../../SECURITY.md`](../../SECURITY.md) for the full threat model.
+See [`architecture.md`](./architecture.md) for the trust boundaries and the
+verification order, and [`../../SECURITY.md`](../../SECURITY.md) for the full
+threat model.

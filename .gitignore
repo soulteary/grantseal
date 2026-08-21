@@ -29,6 +29,10 @@ coverage.html
 coverage.out
 *.prof
 
+# Go fuzz-generated corpus / crashers (seed corpus, if any, is added explicitly
+# with `git add -f`; generated failing inputs must not be committed).
+testdata/fuzz/
+
 # OS / editor
 .DS_Store
 *.swp

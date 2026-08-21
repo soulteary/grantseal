@@ -53,6 +53,75 @@ jobs:
         if: runner.os == 'Linux'
         run: go test ./... -race
 
+  coverage:
+    name: coverage gate
+    runs-on: ubuntu-latest
+    env:
+      # Minimum total coverage gate. Set to the measured total (77.5% on commit
+      # e5c6e93), rounded DOWN to 77 so the producing commit cannot fail its own
+      # gate. Raise deliberately as coverage improves.
+      COVERAGE_MIN: "77"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+          check-latest: true
+
+      - name: go test (coverage profile)
+        run: go test ./... -covermode=atomic -coverprofile=coverage.out
+
+      - name: coverage summary
+        run: go tool cover -func=coverage.out
+
+      - name: upload coverage profile
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-profile
+          path: coverage.out
+          if-no-files-found: error
+
+      - name: enforce coverage gate
+        run: bash scripts/check-coverage.sh "$COVERAGE_MIN" coverage.out
+
+  doc-checks:
+    name: docs & sensitive files
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: install ripgrep
+        run: sudo apt-get update && sudo apt-get install -y ripgrep
+
+      - name: doc language (no unverifiable quality labels)
+        run: bash scripts/check-doc-language.sh .
+
+      - name: sensitive files (no private keys in tree)
+        # Full-tree audit; the script excludes the committed example keys/ dir
+        # and its own scripts/ dir to avoid false positives.
+        run: bash scripts/check-sensitive-files.sh .
+
+      - name: markdown link check
+        uses: gaurav-nelson/github-action-markdown-link-check@v1
+        with:
+          use-quiet-mode: "yes"
+          use-verbose-mode: "yes"
+
+  bench-smoke:
+    name: benchmark smoke (compile & run once)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+          check-latest: true
+
+      - name: run benchmarks once (compile + execute, no thresholds)
+        run: go test ./pkg/license ./pkg/fingerprint -run '^$' -bench . -benchtime=1x
+
   fuzz:
     name: fuzz (short)
     runs-on: ubuntu-latest
@@ -66,3 +135,52 @@ jobs:
 
       - name: go test -fuzz (30s)
         run: go test ./pkg/license -run=^$ -fuzz=FuzzParseEnvelope -fuzztime=30s
+
+  coverage-badge:
+    name: coverage badge (default branch/tag only)
+    # Only regenerate and commit the badge on pushes to the default branch or a
+    # tag; pull requests never get write access. Mirrors goreportcard.yml.
+    if: >-
+      github.event_name == 'push' &&
+      (github.ref == 'refs/heads/main' ||
+       github.ref == 'refs/heads/master' ||
+       startsWith(github.ref, 'refs/tags/'))
+    needs: [coverage]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    # Prevent overlapping runs from committing/overwriting the badge concurrently.
+    concurrency:
+      group: coverage-badge-${{ github.ref }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+          check-latest: true
+
+      - name: measure total coverage
+        id: cov
+        run: |
+          go test ./... -covermode=atomic -coverprofile=coverage.out
+          total="$(go tool cover -func=coverage.out | awk '/^total:/ {gsub(/%/,"",$NF); print $NF}')"
+          echo "total=$total" >>"$GITHUB_OUTPUT"
+
+      - name: generate coverage SVG
+        env:
+          TOTAL: ${{ steps.cov.outputs.total }}
+        run: bash scripts/gen-coverage-badge.sh "$TOTAL" .github/coverage.svg
+
+      - name: commit badge if changed
+        run: |
+          if git diff --quiet -- .github/coverage.svg; then
+            echo "coverage badge unchanged"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add .github/coverage.svg
+          git commit -m "ci: update coverage badge [skip ci]"
+          git push
