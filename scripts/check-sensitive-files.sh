@@ -79,10 +79,13 @@ git_tracked_audit() {
     return 0
   fi
 
-  local self_rel
+  local self_rel selftest_rel
   # Path of this script relative to the repo root, so we can exclude it from the
   # content scan (it embeds the PEM header pattern as a literal).
   self_rel="$(git ls-files --full-name -- "$0" 2>/dev/null || true)"
+  # The companion self-test plants literal PEM headers as test fixtures; exclude
+  # it from the content scan too so it is not flagged as a real key.
+  selftest_rel="$(git ls-files --full-name -- "$(dirname "$0")/check-sensitive-files-selftest.sh" 2>/dev/null || true)"
 
   local name_hits="" content_hits="" f base
   while IFS= read -r -d '' f; do
@@ -93,8 +96,12 @@ git_tracked_audit() {
         name_hits+="$f"$'\n'
         ;;
     esac
-    # Content-based detection: skip this scanner itself.
+    # Content-based detection: skip this scanner and its self-test (both embed
+    # the PEM header pattern as a string literal, not a real key).
     if [ -n "$self_rel" ] && [ "$f" = "$self_rel" ]; then
+      continue
+    fi
+    if [ -n "$selftest_rel" ] && [ "$f" = "$selftest_rel" ]; then
       continue
     fi
     if [ -f "$f" ] && grep -Il -- "$PEM_HEADER" "$f" >/dev/null 2>&1; then

@@ -22,13 +22,13 @@ jobs:
         # Test the minimum supported and the current Go toolchain. Pin the
         # patch-agnostic minor version and disable check-latest so the toolchain
         # is reproducible rather than silently tracking the newest release.
-        go: ["1.25.0", "1.26.0"]
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
 
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: "${{ matrix.go }}"
+          # go-version: "${{ matrix.go }}"
+          go-version-file: 'go.mod'
           check-latest: false
 
       - name: gofmt
@@ -90,7 +90,7 @@ jobs:
 
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: "1.26.0"
+          go-version-file: 'go.mod'
           check-latest: false
 
       # Changed-code coverage gate: a PR that adds a large chunk of untested code
@@ -126,7 +126,7 @@ jobs:
 
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: "1.26.0"
+          go-version-file: 'go.mod'
           check-latest: false
 
       # Scan the module (source + std lib) for known vulnerabilities. Installed
@@ -194,7 +194,7 @@ jobs:
 
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: "1.26.0"
+          go-version-file: 'go.mod'
           check-latest: false
 
       - name: run benchmarks once (compile + execute, no thresholds)
@@ -220,7 +220,7 @@ jobs:
 
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: "1.26.0"
+          go-version-file: 'go.mod'
           check-latest: false
 
       - name: go test -fuzz (30s)
@@ -238,7 +238,7 @@ jobs:
 
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: "1.26.0"
+          go-version-file: 'go.mod'
           check-latest: false
 
       # Exercise the full release pipeline on every push/PR WITHOUT publishing,
