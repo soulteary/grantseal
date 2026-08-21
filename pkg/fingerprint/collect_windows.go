@@ -29,6 +29,13 @@ func collectComponents() []Component {
 	return components
 }
 
+// primaryCategoryPriority returns the Windows priority order for selecting the
+// v2 primary identifier. Windows exposes the cryptography MachineGuid as its
+// single stable machine identifier.
+func primaryCategoryPriority() []string {
+	return []string{CategoryMachineGUID}
+}
+
 // parseMachineGUID extracts the MachineGuid value from `reg query` output. Lines
 // look like: "    MachineGuid    REG_SZ    xxxxxxxx-xxxx-...".
 func parseMachineGUID(out string) string {

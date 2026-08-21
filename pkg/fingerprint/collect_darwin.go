@@ -28,6 +28,13 @@ func collectComponents() []Component {
 	return components
 }
 
+// primaryCategoryPriority returns the macOS priority order for selecting the v2
+// primary identifier. macOS exposes the IOPlatformUUID as its single stable
+// hardware identifier.
+func primaryCategoryPriority() []string {
+	return []string{CategoryPlatformUUID}
+}
+
 // parseIOPlatformUUID extracts the IOPlatformUUID value from ioreg output. Lines
 // look like: "IOPlatformUUID" = "XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX".
 func parseIOPlatformUUID(out string) string {

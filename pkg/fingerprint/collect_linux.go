@@ -38,3 +38,10 @@ func collectComponents() []Component {
 
 	return components
 }
+
+// primaryCategoryPriority returns the Linux priority order for selecting the v2
+// primary identifier: the systemd/D-Bus machine-id is the most stable and
+// privacy-neutral, followed by the DMI product UUID and board serial.
+func primaryCategoryPriority() []string {
+	return []string{CategoryMachineID, CategoryProductUUID, CategoryBoardUUID}
+}
