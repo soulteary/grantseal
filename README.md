@@ -62,15 +62,16 @@ model and limits.
 ### Quick start
 
 ```bash
-# Issuer: generate a key pair (private key stays on the issuer machine)
-go run ./cmd/license-tool keygen -key-id k1 -out-dir ./keys
+# Issuer: generate a key pair into a gitignored dir (private key stays local).
+# ./_keys is gitignored; never commit a private key.
+go run ./cmd/license-tool keygen -key-id k1 -out-dir ./_keys
 
 # Issue a license
 go run ./cmd/license-tool issue -config examples/issue-config.json \
-  -key ./keys/k1-private.key -out customer.lic
+  -key ./_keys/k1-private.key -out customer.lic
 
 # Client: verify + policy-validate
-go run ./cmd/license-tool verify -license customer.lic -pubkey ./keys/k1-public.key \
+go run ./cmd/license-tool verify -license customer.lic -pubkey ./_keys/k1-public.key \
   -product acme-app -version 1.4.0
 ```
 
@@ -278,15 +279,16 @@ safety notes) see [`docs/enUS/README.md`](./docs/enUS/README.md#install--docker)
 ### 快速开始
 
 ```bash
-# 签发端：生成密钥对（私钥留在签发端机器上）
-go run ./cmd/license-tool keygen -key-id k1 -out-dir ./keys
+# 签发端:把密钥对生成到 gitignored 目录(私钥留在本地机器)。
+# ./_keys 已 gitignore;私钥绝不可提交。
+go run ./cmd/license-tool keygen -key-id k1 -out-dir ./_keys
 
 # 签发授权
 go run ./cmd/license-tool issue -config examples/issue-config.json \
-  -key ./keys/k1-private.key -out customer.lic
+  -key ./_keys/k1-private.key -out customer.lic
 
-# 客户端：验证 + 策略校验
-go run ./cmd/license-tool verify -license customer.lic -pubkey ./keys/k1-public.key \
+# 客户端:验证 + 策略校验
+go run ./cmd/license-tool verify -license customer.lic -pubkey ./_keys/k1-public.key \
   -product acme-app -version 1.4.0
 ```
 

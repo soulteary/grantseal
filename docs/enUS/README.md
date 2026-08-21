@@ -121,29 +121,30 @@ scenario-specific variants. Fields:
 ## CLI usage
 
 ```bash
-# Generate a key pair (private key stays local, mode 0600)
-go run ./cmd/license-tool keygen -key-id k1 -out-dir ./keys
+# Generate a key pair into a gitignored dir (private key stays local, mode 0600).
+# ./_keys is gitignored; never commit a private key.
+go run ./cmd/license-tool keygen -key-id k1 -out-dir ./_keys
 
 # Print the public key from a private key
-go run ./cmd/license-tool public-key -key ./keys/k1-private.key
+go run ./cmd/license-tool public-key -key ./_keys/k1-private.key
 
 # Issue a license from JSON config
 go run ./cmd/license-tool issue -config examples/issue-config.json \
-  -key ./keys/k1-private.key -out customer.lic
+  -key ./_keys/k1-private.key -out customer.lic
 
 # Verify + policy-validate (client-side)
-go run ./cmd/license-tool verify -license customer.lic -pubkey ./keys/k1-public.key \
+go run ./cmd/license-tool verify -license customer.lic -pubkey ./_keys/k1-public.key \
   -product acme-app -version 1.4.0
 
 # Inspect (signature only, no policy checks) — diagnostics only
-go run ./cmd/license-tool inspect -license customer.lic -pubkey ./keys/k1-public.key
+go run ./cmd/license-tool inspect -license customer.lic -pubkey ./_keys/k1-public.key
 
 # Device fingerprint / request code
 go run ./cmd/license-tool fingerprint -namespace acme-app -json
 go run ./cmd/license-tool fingerprint -namespace acme-app -request-code
 
 # Build a signed revocation list
-go run ./cmd/license-tool revoke-list -key ./keys/k1-private.key -key-id k1 \
+go run ./cmd/license-tool revoke-list -key ./_keys/k1-private.key -key-id k1 \
   -ids lic_abc,lic_def -out revoked.json
 
 # Print the license-tool version
@@ -171,21 +172,22 @@ brew install soulteary/tap/grantseal
 > an image — and keep it on a trusted issuer machine.
 
 ```bash
-# Issuer: generate a key pair into a host directory, then keep it off the image
-docker run --rm -v "$PWD/keys:/work/keys" soulteary/grantseal:latest \
-  keygen -key-id k1 -out-dir /work/keys
+# Issuer: generate a key pair into a host directory, then keep it off the image.
+# ./_keys is gitignored; never commit or bake in a private key.
+docker run --rm -v "$PWD/_keys:/work/_keys" soulteary/grantseal:latest \
+  keygen -key-id k1 -out-dir /work/_keys
 
 # Issue a license with a read-only mounted private key
 docker run --rm \
-  -v "$PWD/keys:/work/keys:ro" \
+  -v "$PWD/_keys:/work/_keys:ro" \
   -v "$PWD:/work" \
   soulteary/grantseal:latest \
   issue -config /work/examples/issue-config.json \
-  -key /work/keys/k1-private.key -out /work/customer.lic
+  -key /work/_keys/k1-private.key -out /work/customer.lic
 
 # Client-side verification only needs the public key
 docker run --rm -v "$PWD:/work" soulteary/grantseal:latest \
-  verify -license /work/customer.lic -pubkey /work/keys/k1-public.key
+  verify -license /work/customer.lic -pubkey /work/_keys/k1-public.key
 ```
 
 ## Client integration (library)

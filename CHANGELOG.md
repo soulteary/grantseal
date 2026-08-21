@@ -13,6 +13,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Sensitive-file scan (`scripts/check-sensitive-files.sh`) now performs a
+  git-tracked audit by default: it enumerates only tracked files
+  (`git ls-files -z`) and fails if any private-key filename or PEM private-key
+  header was committed (including keys force-added past `.gitignore`), while
+  git-ignored local example keys never trip the gate. The `keys/` blanket
+  exemption was removed; the `dist/`/explicit-path artifact scan (used by the
+  CI full-tree `.` audit) is preserved for backward compatibility.
+- 敏感文件扫描(`scripts/check-sensitive-files.sh`)默认改为基于 git 跟踪的审计:
+  仅枚举已跟踪文件(`git ls-files -z`),命中私钥文件名或 PEM 私钥头即失败(含
+  用 `-f` 绕过 `.gitignore` 强制添加的密钥),而本地 gitignored 的示例密钥不会
+  误报;移除了对 `keys/` 的无条件豁免,并保留 `dist/`/显式路径的产物扫描
+  (兼容 CI 的全树 `.` 审计)。
+- Example and documentation keys are now generated at runtime into gitignored
+  directories: `examples/run-scenarios.sh` writes to `examples/out/keys`, and
+  the READMEs (`README.md`, `docs/enUS/README.md`, `docs/zhCN/README.md`) show
+  `keygen ... -out-dir ./_keys` before referencing `./_keys/k1-*.key`. This
+  removes the impression that the repo ships fixed `keys/k1-*.key` private keys.
+- 示例与文档密钥改为运行时生成到 gitignored 目录:`examples/run-scenarios.sh`
+  写入 `examples/out/keys`,三份 README(`README.md`、`docs/enUS/README.md`、
+  `docs/zhCN/README.md`)先 `keygen ... -out-dir ./_keys` 再引用
+  `./_keys/k1-*.key`,消除"仓库自带固定 `keys/k1-*.key` 私钥"的错误印象。
 - Documentation rewritten to be evidence-based: removed unsubstantiated quality
   labels ("commercial-grade" / "商业级") in favor of verifiable positioning, and
   reorganized `README.md`, `docs/enUS/README.md`, and `docs/zhCN/README.md`.

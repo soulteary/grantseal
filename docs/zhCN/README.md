@@ -103,29 +103,30 @@ examples/          客户端集成 + 批量签发配置
 ## CLI 用法
 
 ```bash
-# 生成密钥对（私钥留在本地，权限 0600）
-go run ./cmd/license-tool keygen -key-id k1 -out-dir ./keys
+# 生成密钥对到 gitignored 目录(私钥留在本地,权限 0600)。
+# ./_keys 已 gitignore;私钥绝不可提交。
+go run ./cmd/license-tool keygen -key-id k1 -out-dir ./_keys
 
 # 从私钥打印公钥
-go run ./cmd/license-tool public-key -key ./keys/k1-private.key
+go run ./cmd/license-tool public-key -key ./_keys/k1-private.key
 
 # 从 JSON 配置签发授权
 go run ./cmd/license-tool issue -config examples/issue-config.json \
-  -key ./keys/k1-private.key -out customer.lic
+  -key ./_keys/k1-private.key -out customer.lic
 
-# 验证 + 策略校验（客户端）
-go run ./cmd/license-tool verify -license customer.lic -pubkey ./keys/k1-public.key \
+# 验证 + 策略校验(客户端)
+go run ./cmd/license-tool verify -license customer.lic -pubkey ./_keys/k1-public.key \
   -product acme-app -version 1.4.0
 
-# 仅验签、打印 payload（不做策略校验）—— 仅用于诊断
-go run ./cmd/license-tool inspect -license customer.lic -pubkey ./keys/k1-public.key
+# 仅验签、打印 payload(不做策略校验)—— 仅用于诊断
+go run ./cmd/license-tool inspect -license customer.lic -pubkey ./_keys/k1-public.key
 
 # 设备指纹 / 申请码
 go run ./cmd/license-tool fingerprint -namespace acme-app -json
 go run ./cmd/license-tool fingerprint -namespace acme-app -request-code
 
 # 构建签名撤销列表
-go run ./cmd/license-tool revoke-list -key ./keys/k1-private.key -key-id k1 \
+go run ./cmd/license-tool revoke-list -key ./_keys/k1-private.key -key-id k1 \
   -ids lic_abc,lic_def -out revoked.json
 
 # 打印 license-tool 版本
@@ -150,21 +151,22 @@ brew install soulteary/tap/grantseal
 > 挂载私钥，绝不打进镜像，且私钥只保存在受信任的签发端机器上。
 
 ```bash
-# 签发端：把密钥对生成到宿主机目录，切勿打进镜像
-docker run --rm -v "$PWD/keys:/work/keys" soulteary/grantseal:latest \
-  keygen -key-id k1 -out-dir /work/keys
+# 签发端:把密钥对生成到宿主机目录,切勿打进镜像。
+# ./_keys 已 gitignore;私钥绝不可提交或打进镜像。
+docker run --rm -v "$PWD/_keys:/work/_keys" soulteary/grantseal:latest \
+  keygen -key-id k1 -out-dir /work/_keys
 
 # 以只读方式挂载私钥来签发授权
 docker run --rm \
-  -v "$PWD/keys:/work/keys:ro" \
+  -v "$PWD/_keys:/work/_keys:ro" \
   -v "$PWD:/work" \
   soulteary/grantseal:latest \
   issue -config /work/examples/issue-config.json \
-  -key /work/keys/k1-private.key -out /work/customer.lic
+  -key /work/_keys/k1-private.key -out /work/customer.lic
 
 # 客户端验证只需公钥
 docker run --rm -v "$PWD:/work" soulteary/grantseal:latest \
-  verify -license /work/customer.lic -pubkey /work/keys/k1-public.key
+  verify -license /work/customer.lic -pubkey /work/_keys/k1-public.key
 ```
 
 ## 客户端集成（库）

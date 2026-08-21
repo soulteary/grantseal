@@ -30,7 +30,8 @@ cd "$REPO_ROOT"
 
 SCEN_DIR="examples/scenarios"
 OUT_DIR="examples/out"
-KEYS_DIR="keys"
+# 示例密钥写入 gitignored 的 examples/out/keys,避免在仓库根 keys/ 落盘。
+KEYS_DIR="$OUT_DIR/keys"
 PRIV="$KEYS_DIR/k1-private.key"
 PUB="$KEYS_DIR/k1-public.key"
 KEY_ID="k1"
