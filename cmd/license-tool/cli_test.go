@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -234,7 +235,7 @@ func TestCmdRevokeListRoundTrip(t *testing.T) {
 	dir, privPath, pubPath := newTestKeyPair(t, "k1")
 	revPath := filepath.Join(dir, "revocation.json")
 	if _, err := captureStdout(t, func() error {
-		return cmdRevokeList([]string{"-key", privPath, "-key-id", "k1", "-ids", "lic_a,lic_b", "-out", revPath})
+		return cmdRevokeList([]string{"-key", privPath, "-key-id", "k1", "-ids", "lic_a,lic_b", "-sequence", "1", "-ttl", "8760h", "-out", revPath})
 	}); err != nil {
 		t.Fatalf("cmdRevokeList: %v", err)
 	}
@@ -264,7 +265,7 @@ func TestCmdRevokeListIDsFile(t *testing.T) {
 	}
 	revPath := filepath.Join(dir, "revocation.json")
 	if _, err := captureStdout(t, func() error {
-		return cmdRevokeList([]string{"-key", privPath, "-key-id", "k1", "-ids-file", idsFile, "-out", revPath})
+		return cmdRevokeList([]string{"-key", privPath, "-key-id", "k1", "-ids-file", idsFile, "-sequence", "1", "-ttl", "8760h", "-out", revPath})
 	}); err != nil {
 		t.Fatalf("cmdRevokeList ids-file: %v", err)
 	}
@@ -325,6 +326,54 @@ func TestWriteFileNoClobber(t *testing.T) {
 	got, _ := os.ReadFile(path)
 	if string(got) != "second" {
 		t.Fatalf("force overwrite content = %q", string(got))
+	}
+}
+
+// The -v2 fingerprint mode runs the v2 code path (per-platform primary
+// identifier). Like v1 it may report insufficient hardware info on fallback
+// platforms; anything else — including a panic — is a failure. With
+// -request-code the emitted code is tagged with the V2- version prefix.
+func TestCmdFingerprintV2RunsOrReportsInsufficient(t *testing.T) {
+	out, err := captureStdout(t, func() error {
+		return cmdFingerprint([]string{"-namespace", "test-ns", "-v2", "-request-code"})
+	})
+	if err != nil {
+		if !strings.Contains(err.Error(), "insufficient hardware info") {
+			t.Fatalf("unexpected v2 fingerprint error: %v", err)
+		}
+		return
+	}
+	if strings.TrimSpace(out) == "" {
+		t.Fatal("expected non-empty v2 request code output")
+	}
+	if !strings.HasPrefix(strings.TrimSpace(out), "V2-") {
+		t.Fatalf("expected a V2- request code in output, got: %q", out)
+	}
+}
+
+// writeFileNoClobber in force mode must overwrite an existing file atomically
+// while preserving the requested permission bits.
+func TestWriteFileNoClobberForcePreservesPerm(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "perm.txt")
+	if err := writeFileNoClobber(path, []byte("a"), 0o600, false); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeFileNoClobber(path, []byte("bb"), 0o600, true); err != nil {
+		t.Fatalf("force overwrite: %v", err)
+	}
+	if runtime.GOOS != "windows" {
+		fi, err := os.Stat(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if fi.Mode().Perm() != 0o600 {
+			t.Fatalf("mode after force = %o, want 0600", fi.Mode().Perm())
+		}
+	}
+	got, _ := os.ReadFile(path)
+	if string(got) != "bb" {
+		t.Fatalf("content = %q, want bb", string(got))
 	}
 }
 

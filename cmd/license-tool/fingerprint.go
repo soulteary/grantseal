@@ -14,13 +14,20 @@ func cmdFingerprint(args []string) error {
 	ns := fs.String("namespace", "", "product namespace (required)")
 	jsonOut := fs.Bool("json", false, "print full fingerprint JSON")
 	code := fs.Bool("request-code", false, "print the human-friendly request code")
+	useV2 := fs.Bool("v2", false, "use the v2 per-platform primary-identifier scheme")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 	if *ns == "" {
 		return fmt.Errorf("fingerprint: -namespace is required")
 	}
-	fp, err := fingerprint.Compute(*ns)
+	compute := fingerprint.Compute
+	requestCode := fingerprint.RequestCode
+	if *useV2 {
+		compute = fingerprint.ComputeV2
+		requestCode = fingerprint.RequestCodeV2
+	}
+	fp, err := compute(*ns)
 	if err != nil {
 		if errors.Is(err, fingerprint.ErrInsufficientInfo) {
 			return fmt.Errorf("fingerprint: insufficient hardware info on this platform")
@@ -28,7 +35,7 @@ func cmdFingerprint(args []string) error {
 		return err
 	}
 	if *code {
-		rc, cerr := fingerprint.RequestCode(*ns)
+		rc, cerr := requestCode(*ns)
 		if cerr != nil {
 			return cerr
 		}

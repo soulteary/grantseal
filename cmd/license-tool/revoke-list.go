@@ -5,8 +5,10 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/soulteary/grantseal/internal/issuer"
+	"github.com/soulteary/grantseal/pkg/license"
 )
 
 func cmdRevokeList(args []string) error {
@@ -15,13 +17,18 @@ func cmdRevokeList(args []string) error {
 	keyID := fs.String("key-id", "", "key_id for the signature (required)")
 	ids := fs.String("ids", "", "comma-separated license_ids to revoke")
 	idsFile := fs.String("ids-file", "", "file with one license_id per line")
+	listID := fs.String("list-id", "", "logical list id (v2; keeps a separate client high-water mark)")
+	sequence := fs.Uint64("sequence", 0, "v2 monotonically increasing publication counter (required unless -v1)")
+	expiresAt := fs.String("expires-at", "", "v2 expiry as RFC3339 (e.g. 2026-12-31T00:00:00Z); mutually exclusive with -ttl")
+	ttl := fs.Duration("ttl", 0, "v2 time-to-live from now (e.g. 720h); mutually exclusive with -expires-at")
+	v1 := fs.Bool("v1", false, "emit a LEGACY v1 list (no replay resistance; clients must opt in to accept)")
 	out := fs.String("out", "", "output revocation file path (default stdout)")
 	force := fs.Bool("force", false, "overwrite existing output file")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 	if *keyPath == "" || *keyID == "" {
-		return fmt.Errorf("revoke-list: -key and -key-id are required")
+		return &usageError{msg: "revoke-list: -key and -key-id are required"}
 	}
 
 	revoked := splitCSV(*ids)
@@ -38,7 +45,7 @@ func cmdRevokeList(args []string) error {
 		}
 	}
 	if len(revoked) == 0 {
-		return fmt.Errorf("revoke-list: no license_ids provided")
+		return &usageError{msg: "revoke-list: no license_ids provided"}
 	}
 
 	priv, err := issuer.LoadPrivateKey(*keyPath)
@@ -49,7 +56,13 @@ func cmdRevokeList(args []string) error {
 	if err != nil {
 		return err
 	}
-	env, err := issuer.BuildRevocationList(signer, revoked)
+
+	var env *license.RevocationEnvelope
+	if *v1 {
+		env, err = issuer.BuildRevocationList(signer, revoked)
+	} else {
+		env, err = buildRevocationV2(signer, revoked, *listID, *sequence, *expiresAt, *ttl)
+	}
 	if err != nil {
 		return err
 	}
@@ -66,6 +79,38 @@ func cmdRevokeList(args []string) error {
 	}
 	fmt.Fprintf(os.Stderr, "wrote revocation list -> %s (%d ids)\n", *out, len(revoked))
 	return nil
+}
+
+// buildRevocationV2 assembles a v2 revocation list from CLI flags, enforcing
+// that a sequence is present and exactly one expiry source is provided.
+func buildRevocationV2(signer *issuer.Signer, revoked []string, listID string, sequence uint64, expiresAt string, ttl time.Duration) (*license.RevocationEnvelope, error) {
+	if sequence == 0 {
+		return nil, &usageError{msg: "revoke-list: -sequence is required for v2 lists (use -v1 for a legacy list)"}
+	}
+	if expiresAt != "" && ttl > 0 {
+		return nil, &usageError{msg: "revoke-list: -expires-at and -ttl are mutually exclusive"}
+	}
+	now := timeNow().UTC()
+	var exp time.Time
+	switch {
+	case expiresAt != "":
+		t, perr := time.Parse(time.RFC3339, expiresAt)
+		if perr != nil {
+			return nil, &usageError{msg: "revoke-list: invalid -expires-at (want RFC3339): " + perr.Error()}
+		}
+		exp = t.UTC()
+	case ttl > 0:
+		exp = now.Add(ttl)
+	default:
+		return nil, &usageError{msg: "revoke-list: provide -expires-at or -ttl for v2 lists"}
+	}
+	return issuer.BuildRevocationListV2(signer, issuer.RevocationListOptions{
+		ListID:     listID,
+		Sequence:   sequence,
+		IssuedAt:   now,
+		ExpiresAt:  exp,
+		RevokedIDs: revoked,
+	})
 }
 
 func splitCSV(s string) []string {

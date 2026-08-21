@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/json"
 	"flag"
 	"fmt"
 	"os"
@@ -63,9 +62,7 @@ func cmdIssue(args []string) error {
 		return fmt.Errorf("issue: read config: %w", err)
 	}
 	var cfg issueConfig
-	dec := json.NewDecoder(newBytesReader(cfgData))
-	dec.DisallowUnknownFields()
-	if err := dec.Decode(&cfg); err != nil {
+	if err := license.DecodeStrictJSON(cfgData, &cfg, license.MaxLicenseFileSize); err != nil {
 		return fmt.Errorf("issue: parse config: %w", err)
 	}
 

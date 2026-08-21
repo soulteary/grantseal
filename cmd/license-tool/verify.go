@@ -14,7 +14,7 @@ func cmdVerify(args []string) error {
 	licPath := fs.String("license", "", "path to the license file (required)")
 	pubPath := fs.String("pubkey", "", "path to a Base64URL public key file (required)")
 	keyID := fs.String("key-id", "", "key_id for the public key (default: derive from license)")
-	product := fs.String("product", "", "expected product_id (optional)")
+	product := fs.String("product", "", "expected product_id (required; scopes validation to a product)")
 	version := fs.String("version", "", "running product version (optional)")
 	device := fs.String("device", "", "device fingerprint (optional)")
 	revPath := fs.String("revocation", "", "path to a signed revocation list (optional)")
@@ -23,7 +23,13 @@ func cmdVerify(args []string) error {
 		return err
 	}
 	if *licPath == "" || *pubPath == "" {
-		return fmt.Errorf("verify: -license and -pubkey are required")
+		return &usageError{msg: "verify: -license and -pubkey are required"}
+	}
+	// Product scoping is required: an unscoped verification could authorize a
+	// license issued for a different product. Missing -product is a usage error
+	// (exit code 2), distinct from a validation failure (exit code 1).
+	if *product == "" {
+		return &usageError{msg: "verify: -product is required (scope validation to a product)"}
 	}
 
 	pubB64, err := readPublicKeyFile(*pubPath)

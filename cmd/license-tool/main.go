@@ -7,6 +7,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"os"
 )
@@ -64,6 +65,11 @@ func main() {
 	}
 
 	if err != nil {
+		var ue *usageError
+		if errors.As(err, &ue) {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			os.Exit(2)
+		}
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)
 	}
