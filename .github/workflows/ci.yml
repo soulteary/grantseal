@@ -5,24 +5,31 @@ on:
     branches: [main, master]
   pull_request:
 
+# Default to read-only for the whole workflow; individual jobs opt into more.
 permissions:
   contents: read
 
 jobs:
   build-test:
-    name: build & test (${{ matrix.os }})
+    name: build & test (${{ matrix.os }}, go ${{ matrix.go }})
     runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
+        # Test the minimum supported and the current Go toolchain. Pin the
+        # patch-agnostic minor version and disable check-latest so the toolchain
+        # is reproducible rather than silently tracking the newest release.
+        go: ["1.25.0", "1.26.0"]
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
 
-      - uses: actions/setup-go@v7
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: "1.26"
-          check-latest: true
+          go-version: "${{ matrix.go }}"
+          check-latest: false
 
       - name: gofmt
         # gofmt uses LF; skip the formatting gate on Windows where CRLF
@@ -56,16 +63,23 @@ jobs:
   coverage:
     name: coverage gate
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          # Full history so the changed-code coverage gate can diff a PR against
+          # its merge base.
+          fetch-depth: 0
 
       # GTR runs `go test` once with the race detector and derives both test
       # stats and coverage from that single run, then enforces the gates.
       # Read-only on PRs: no write-back, no secrets. The package list excludes
       # examples/ (a tests-free demo binary); total gate 80 matches the measured
-      # 80.51%, and the per-package gate 70 clears cmd/license-tool (70.68%).
+      # 84.02%, and the per-package gate 70 clears every package (lowest is
+      # internal/issuer at ~78.9%; cmd/license-tool is ~80.8%).
       - name: go test + coverage gate (GTR)
-        uses: soulteary/go-test-report-action@v1
+        uses: soulteary/go-test-report-action@92d333b2adb625436dc9eec7e7335c2af5db61c8 # v1.0.0
         with:
           packages: "./cmd/... ./internal/... ./pkg/..."
           race: "true"
@@ -74,19 +88,62 @@ jobs:
           package_threshold: "70"
           commit: "false"
 
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: "1.26.0"
+          check-latest: false
+
+      # Changed-code coverage gate: a PR that adds a large chunk of untested code
+      # can still clear the diluted repo-wide gate above, so additionally require
+      # that changed (added/modified) non-test statements are >= 90% covered.
+      # The script is dependency-free (git + bash + python3, all CI-only); it
+      # computes the number from a fresh coverage profile + `git diff`. Skipped on
+      # tag pushes (no meaningful PR base).
+      - name: changed-code coverage gate (>=90%)
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          go test ./cmd/... ./internal/... ./pkg/... \
+            -covermode=atomic -coverprofile=coverage.out >/dev/null
+          bash scripts/check-patch-coverage.sh coverage.out "$BASE_SHA" 90
+
       - name: upload raw test results
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: go-test-report-${{ github.run_id }}
           path: .github/test-results/
           if-no-files-found: error
 
+  vuln:
+    name: govulncheck
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: "1.26.0"
+          check-latest: false
+
+      # Scan the module (source + std lib) for known vulnerabilities. Installed
+      # as a CI-only tool; it never enters the runtime go.mod dependency graph.
+      - name: install govulncheck
+        run: go install golang.org/x/vuln/cmd/govulncheck@latest
+
+      - name: govulncheck ./...
+        run: govulncheck ./...
+
   doc-checks:
     name: docs & sensitive files
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
 
       - name: install ripgrep
         run: sudo apt-get update && sudo apt-get install -y ripgrep
@@ -99,8 +156,30 @@ jobs:
         # and its own scripts/ dir to avoid false positives.
         run: bash scripts/check-sensitive-files.sh .
 
+      - name: sensitive-file scanner self-test
+        run: bash scripts/check-sensitive-files-selftest.sh
+
+      - name: patch-coverage gate self-test
+        run: bash scripts/check-patch-coverage-selftest.sh
+
+      - name: write-back allowlist gate self-test
+        run: bash scripts/check-writeback-allowlist-selftest.sh
+
+      # Regenerate the coverage-derived blocks in docs/*/quality.md from the
+      # committed .github/go-test-report.json and fail if they drift. This makes
+      # the quality docs a strict function of the machine-readable source of
+      # truth rather than hand-typed numbers that can silently rot.
+      - name: quality docs are in sync with the coverage source
+        run: |
+          bash scripts/generate-quality-docs.sh
+          if ! git diff --exit-code -- docs/enUS/quality.md docs/zhCN/quality.md; then
+            echo "::error::docs/*/quality.md GENERATED-COVERAGE blocks are stale." \
+              "Run scripts/generate-quality-docs.sh and commit the result." >&2
+            exit 1
+          fi
+
       - name: markdown link check
-        uses: tcort/github-action-markdown-link-check@v1
+        uses: tcort/github-action-markdown-link-check@e047c5b37f24ab722bbef1a27b6fab7f96bc4068 # v1.1.3
         with:
           use-quiet-mode: "yes"
           use-verbose-mode: "yes"
@@ -108,35 +187,76 @@ jobs:
   bench-smoke:
     name: benchmark smoke (compile & run once)
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
 
-      - uses: actions/setup-go@v7
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: "1.26"
-          check-latest: true
+          go-version: "1.26.0"
+          check-latest: false
 
       - name: run benchmarks once (compile + execute, no thresholds)
         run: go test ./pkg/license ./pkg/fingerprint -run '^$' -bench . -benchtime=1x
 
   fuzz:
-    name: fuzz (short)
+    name: fuzz (short, ${{ matrix.target }})
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        # All four fuzz targets are smoke-run for a short time on every push/PR.
+        # Longer campaigns with crash-corpus retention run in fuzz-nightly.yml.
+        target:
+          - FuzzParseEnvelope
+          - FuzzCanonicalBytes
+          - FuzzLoadRevocationList
+          - FuzzRollbackStateLoad
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
 
-      - uses: actions/setup-go@v7
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: "1.26"
-          check-latest: true
+          go-version: "1.26.0"
+          check-latest: false
 
       - name: go test -fuzz (30s)
-        run: go test ./pkg/license -run=^$ -fuzz=FuzzParseEnvelope -fuzztime=30s
+        run: go test ./pkg/license -run=^$ -fuzz=${{ matrix.target }} -fuzztime=30s
 
-  coverage-report:
-    name: coverage report (default branch/tag only)
-    # Only regenerate and commit the stable report/badge/JSON on pushes to the
-    # default branch or a tag; pull requests never get write access.
+  goreleaser-snapshot:
+    name: goreleaser snapshot (no publish)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: "1.26.0"
+          check-latest: false
+
+      # Exercise the full release pipeline on every push/PR WITHOUT publishing,
+      # so packaging regressions are caught before a tag is cut. --snapshot needs
+      # no secrets and produces nothing that leaves the runner.
+      - name: goreleaser release --snapshot --clean
+        uses: goreleaser/goreleaser-action@f06c13b6b1a9625abc9e6e439d9c05a8f2190e94 # v7.2.3
+        with:
+          version: "~> v2"
+          args: release --snapshot --clean
+
+      - name: verify snapshot archive allowlist
+        run: bash scripts/check-archive-allowlist.sh dist
+
+  coverage-report-generate:
+    name: coverage report (generate, no write)
+    # Only regenerate the stable report/badge/JSON on pushes to the default
+    # branch or a tag; pull requests never trigger a write-back.
     if: >-
       github.event_name == 'push' &&
       (github.ref == 'refs/heads/main' ||
@@ -144,6 +264,46 @@ jobs:
        startsWith(github.ref, 'refs/tags/'))
     needs: [coverage]
     runs-on: ubuntu-latest
+    # The report-generating Action runs strictly read-only: it must never hold
+    # contents: write. It regenerates the report files in the working tree
+    # (commit: false); a separate restricted job performs the commit.
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+
+      # Regenerate .github/go-test-report.md, .github/coverage.svg, and
+      # .github/go-test-report.json in-tree WITHOUT committing.
+      - name: go test report (GTR, no write-back)
+        uses: soulteary/go-test-report-action@92d333b2adb625436dc9eec7e7335c2af5db61c8 # v1.0.0
+        with:
+          packages: "./cmd/... ./internal/... ./pkg/..."
+          race: "true"
+          cover_mode: atomic
+          coverage_threshold: "80"
+          package_threshold: "70"
+          commit: "false"
+
+      # Hand only the report artifacts to the write-back job. The downstream job
+      # restores exactly these paths, so nothing else can enter the commit.
+      - name: upload generated report artifacts
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: coverage-report-${{ github.run_id }}
+          path: |
+            .github/go-test-report.json
+            .github/go-test-report.md
+            .github/coverage.svg
+          if-no-files-found: error
+
+  coverage-report-writeback:
+    name: coverage report (restricted write-back)
+    needs: [coverage-report-generate]
+    runs-on: ubuntu-latest
+    # This is the ONLY job with contents: write, and it never runs the report
+    # generator. It restores the generated artifacts, stages only the
+    # allowlisted report paths, verifies the staged set, and commits with plain
+    # git — so a compromised generator cannot push arbitrary files.
     permissions:
       contents: write
     # Prevent overlapping runs from committing/overwriting the report concurrently.
@@ -151,17 +311,27 @@ jobs:
       group: coverage-report-${{ github.ref }}
       cancel-in-progress: false
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
 
-      # Regenerate .github/go-test-report.md, .github/coverage.svg, and
-      # .github/go-test-report.json and commit them only when they change.
-      - name: go test report + write-back (GTR)
-        uses: soulteary/go-test-report-action@v1
+      - name: download generated report artifacts
+        uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6.0.0
         with:
-          packages: "./cmd/... ./internal/... ./pkg/..."
-          race: "true"
-          cover_mode: atomic
-          coverage_threshold: "80"
-          package_threshold: "70"
-          commit: "true"
-          commit_message: "ci: update Go test report [skip ci]"
+          name: coverage-report-${{ github.run_id }}
+          path: .github
+
+      - name: stage, verify allowlist, and commit report
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -- \
+            .github/go-test-report.json \
+            .github/go-test-report.md \
+            .github/coverage.svg
+          # Fail closed if anything outside the report allowlist got staged.
+          bash scripts/check-writeback-allowlist.sh
+          if git diff --cached --quiet; then
+            echo "report unchanged; nothing to commit"
+            exit 0
+          fi
+          git commit -m "ci: update Go test report [skip ci]"
+          git push

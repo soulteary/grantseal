@@ -10,31 +10,76 @@ on:
 # badge back must never re-trigger this workflow, so branch push events are
 # intentionally omitted (tag pushes are not produced by the badge commit).
 
+# Default to read-only; only the restricted write-back job opts into write.
 permissions:
-  contents: write
-
-# Prevent overlapping runs from committing/overwriting the badge concurrently.
-concurrency:
-  group: goreportcard-${{ github.ref }}
-  cancel-in-progress: false
+  contents: read
 
 jobs:
-  report-card:
+  report-card-generate:
+    name: report card (generate, no write)
     runs-on: ubuntu-latest
+    # The report-generating Action runs strictly read-only: it must never hold
+    # contents: write. It produces the badge svg; a separate restricted job
+    # commits it.
+    permissions:
+      contents: read
     steps:
-      # This workflow is triggered by tag pushes (v*), so a default checkout
-      # lands on a detached HEAD (the tag's commit) and the badge commit cannot
-      # be pushed ("You are not currently on a branch"). Check out the default
-      # branch by name so HEAD tracks a branch the badge can be committed back to.
-      - uses: actions/checkout@v5
+      # This workflow is triggered by tag pushes (v*); check out the default
+      # branch by name so the badge is generated against branch state.
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           ref: ${{ github.event.repository.default_branch }}
 
       - id: grc
-        uses: soulteary/goreportcard-action@v1
+        uses: soulteary/goreportcard-action@aa08bee4093e73fe48220e37c65c320120731284 # v1
         with:
           directory: "."
           output: ".github/goreportcard.svg"
-          commit: "true"
+          commit: "false"
 
       - run: echo "Grade ${{ steps.grc.outputs.grade }} (${{ steps.grc.outputs.score }}%)"
+
+      - name: upload generated badge artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: goreportcard-badge-${{ github.run_id }}
+          path: .github/goreportcard.svg
+          if-no-files-found: error
+
+  report-card-writeback:
+    name: report card (restricted write-back)
+    needs: [report-card-generate]
+    runs-on: ubuntu-latest
+    # This is the ONLY job with contents: write, and it never runs the report
+    # generator. It restores only the badge artifact, stages only the
+    # allowlisted path, verifies the staged set, and commits with plain git.
+    permissions:
+      contents: write
+    # Prevent overlapping runs from committing/overwriting the badge concurrently.
+    concurrency:
+      group: goreportcard-${{ github.ref }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+
+      - name: download generated badge artifact
+        uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6.0.0
+        with:
+          name: goreportcard-badge-${{ github.run_id }}
+          path: .github
+
+      - name: stage, verify allowlist, and commit badge
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -- .github/goreportcard.svg
+          # Fail closed if anything outside the report allowlist got staged.
+          bash scripts/check-writeback-allowlist.sh
+          if git diff --cached --quiet; then
+            echo "badge unchanged; nothing to commit"
+            exit 0
+          fi
+          git commit -m "ci: update goreportcard badge [skip ci]"
+          git push

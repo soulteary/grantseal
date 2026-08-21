@@ -1,0 +1,48 @@
+name: Fuzz (nightly)
+
+on:
+  schedule:
+    # Nightly at 03:17 UTC — an off-peak, non-round time to avoid the top-of-hour
+    # scheduling stampede on GitHub-hosted runners.
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  fuzz-long:
+    name: fuzz ${{ matrix.target }} (long)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - FuzzParseEnvelope
+          - FuzzCanonicalBytes
+          - FuzzLoadRevocationList
+          - FuzzRollbackStateLoad
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: "1.26.0"
+          check-latest: false
+
+      # A longer campaign than the per-PR smoke run in ci.yml. Any input that
+      # makes a target fail is written by the Go toolchain to
+      # testdata/fuzz/<Target>/<hash>; that crash corpus is archived below so the
+      # failure is reproducible.
+      - name: go test -fuzz (10m)
+        run: go test ./pkg/license -run='^$' -fuzz=${{ matrix.target }} -fuzztime=10m
+
+      - name: archive crash corpus
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: fuzz-crash-${{ matrix.target }}-${{ github.run_id }}
+          path: pkg/license/testdata/fuzz/
+          if-no-files-found: ignore

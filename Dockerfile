@@ -10,7 +10,8 @@
 # the image.
 
 # ---- builder ----
-FROM golang:1.26 AS builder
+# Pinned by digest for reproducible, tamper-evident builds. Tag: golang:1.26
+FROM golang:1.26@sha256:45a5f7a810238aabcbad211d70b9ae082022d96f7c7259e94041ad1b933575ac AS builder
 
 WORKDIR /src
 
@@ -23,7 +24,8 @@ ENV CGO_ENABLED=0
 RUN go build -trimpath -ldflags "-s -w -X main.version=${VERSION}" -o /out/license-tool ./cmd/license-tool
 
 # ---- runtime ----
-FROM gcr.io/distroless/static:nonroot
+# Pinned by digest. Tag: gcr.io/distroless/static:nonroot
+FROM gcr.io/distroless/static:nonroot@sha256:f7f8f729987ad0fdf6b05eeeae94b26e6a0f613bdf46feea7fc40f7bd72953e6
 
 COPY --from=builder /out/license-tool /license-tool
 

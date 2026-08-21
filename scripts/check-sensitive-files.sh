@@ -37,6 +37,13 @@ set -euo pipefail
 
 # Default artifact scan target: release artifacts. Callers may pass explicit
 # paths. The git-tracked audit below always runs regardless of these paths.
+#
+# A caller-named path (other than the work-tree root "." ) represents a release
+# artifact tree (e.g. an extracted tarball, or dist/ before publish) and is
+# scanned UNCONDITIONALLY — even if git-ignored — because a real release must
+# never ship a private key just because dist/ is git-ignored. Only a whole
+# work-tree audit ("." / repo root) applies git-ignore filtering, so it does not
+# false-positive on a developer's locally generated, git-ignored example keys.
 if [ "$#" -gt 0 ]; then
   SCAN_PATHS=("$@")
 else
@@ -136,12 +143,41 @@ is_git_ignored() {
   git check-ignore -q -- "$1" 2>/dev/null
 }
 
+# scan_target_is_worktree_root PATH -> 0 when PATH refers to the whole work tree
+# (".", the repo root, or an absolute path equal to it). Only a whole-tree audit
+# applies git-ignore filtering (so a developer's locally generated, git-ignored
+# example keys don't trip a "." audit). A caller that names a SPECIFIC artifact
+# subdirectory (a release dir/extracted tarball) is scanned unconditionally.
+scan_target_is_worktree_root() {
+  local target="$1"
+  case "$target" in
+    "." | "./") return 0 ;;
+  esac
+  if [ "$IN_GIT_TREE" -eq 1 ]; then
+    local root
+    root="$(git rev-parse --show-toplevel 2>/dev/null || true)"
+    if [ -n "$root" ]; then
+      local abs
+      abs="$(cd "$target" 2>/dev/null && pwd || true)"
+      [ -n "$abs" ] && [ "$abs" = "$root" ] && return 0
+    fi
+  fi
+  return 1
+}
+
 scan_one() {
   local target="$1"
   if [ ! -e "$target" ]; then
     # A missing dist/ is normal outside release builds; not an error.
     echo "note: scan path '$target' does not exist, skipping" >&2
     return 0
+  fi
+
+  # Apply git-ignore filtering ONLY for a whole-work-tree audit. A specifically
+  # named artifact path is a release artifact and is scanned unconditionally.
+  local apply_ignore=0
+  if scan_target_is_worktree_root "$target"; then
+    apply_ignore=1
   fi
 
   # Filename-based detection.
@@ -157,7 +193,7 @@ scan_one() {
   if [ -n "$name_hits" ]; then
     while IFS= read -r f; do
       [ -z "$f" ] && continue
-      if is_git_ignored "$f"; then
+      if [ "$apply_ignore" -eq 1 ] && is_git_ignored "$f"; then
         continue
       fi
       echo "sensitive filename detected under '$target': $f" >&2
@@ -180,7 +216,7 @@ scan_one() {
   if [ -n "$content_hits" ]; then
     while IFS= read -r f; do
       [ -z "$f" ] && continue
-      if is_git_ignored "$f"; then
+      if [ "$apply_ignore" -eq 1 ] && is_git_ignored "$f"; then
         continue
       fi
       echo "PEM private-key header detected under '$target': $f" >&2

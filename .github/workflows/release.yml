@@ -5,47 +5,98 @@ on:
     tags:
       - "v*"
 
+# Default read-only; the release job opts into the write scopes it needs.
 permissions:
-  # contents: write is required for goreleaser to create the GitHub Release
-  # and upload archives/checksums.
-  contents: write
-  # packages: write allows pushing images to GHCR if ever needed; DockerHub
-  # push uses the docker login step below.
-  packages: write
+  contents: read
 
 jobs:
+  # Re-run the full quality gate at the tagged commit so a release can never be
+  # cut from a state that would fail CI (tags can point at commits that never
+  # went through the PR gate). This mirrors the ci.yml checks.
+  gate:
+    name: pre-release quality gate
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: "1.26.0"
+          check-latest: false
+
+      - name: gofmt
+        run: |
+          unformatted="$(gofmt -l .)"
+          if [ -n "$unformatted" ]; then
+            echo "unformatted files:"; echo "$unformatted"; exit 1
+          fi
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: go build
+        run: go build ./...
+
+      - name: go test -race
+        run: go test ./... -race
+
+      - name: fuzz smoke (all targets)
+        run: |
+          for t in FuzzParseEnvelope FuzzCanonicalBytes FuzzLoadRevocationList FuzzRollbackStateLoad; do
+            go test ./pkg/license -run='^$' -fuzz="$t" -fuzztime=15s
+          done
+
+      - name: sensitive files
+        run: bash scripts/check-sensitive-files.sh .
+
+      - name: install govulncheck
+        run: go install golang.org/x/vuln/cmd/govulncheck@latest
+
+      - name: govulncheck ./...
+        run: govulncheck ./...
+
   release:
     name: goreleaser
+    needs: [gate]
     runs-on: ubuntu-latest
+    permissions:
+      # contents: write is required for goreleaser to create the GitHub Release
+      # and upload archives/checksums.
+      contents: write
+      # packages: write allows pushing images to GHCR if ever needed; DockerHub
+      # push uses the docker login step below.
+      packages: write
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           # Full history is required for the changelog to diff against the
           # previous tag.
           fetch-depth: 0
 
       - name: Set up Go
-        uses: actions/setup-go@v7
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: "1.26"
-          check-latest: true
+          go-version: "1.26.0"
+          check-latest: false
 
       # QEMU + buildx enable multi-arch (amd64 + arm64) image builds.
       - name: Set up QEMU
-        uses: docker/setup-qemu-action@v4
+        uses: docker/setup-qemu-action@96fe6ef7f33517b61c61be40b68a1882f3264fb8 # v4.2.0
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v4
+        uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
 
       - name: Log in to Docker Hub
-        uses: docker/login-action@v4
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Run goreleaser
-        uses: goreleaser/goreleaser-action@v7
+        uses: goreleaser/goreleaser-action@f06c13b6b1a9625abc9e6e439d9c05a8f2190e94 # v7.2.3
         with:
           version: "~> v2"
           args: release --clean
@@ -57,3 +108,24 @@ jobs:
           # it to push the generated formula to the tap (the default
           # GITHUB_TOKEN cannot write to a different repo).
           HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+
+      - name: verify release archive allowlist
+        run: bash scripts/check-archive-allowlist.sh dist
+
+      # Also validate the FINAL container image contents, not just the tar.gz /
+      # zip archives. goreleaser leaves the per-arch images loaded locally, so
+      # inspect the amd64 image built on this runner: it must contain only the
+      # app binary + legal files on top of the distroless base scaffolding.
+      - name: verify release image allowlist
+        run: bash scripts/check-archive-allowlist.sh --image "soulteary/grantseal:latest-amd64"
+
+      # TODO(supply-chain): sign released artifacts and images with cosign
+      # (keyless / OIDC) once the repository has an OIDC identity configured:
+      #   permissions: id-token: write
+      #   uses: sigstore/cosign-installer@<pinned-sha>
+      #   run: cosign sign-blob / cosign sign <image>
+      # TODO(supply-chain): generate and attach an SBOM (e.g. syft + goreleaser
+      # `sboms:` stanza) and publish it as a release asset.
+      # TODO(supply-chain): emit SLSA build provenance attestations
+      # (actions/attest-build-provenance) — requires id-token: write and
+      # attestations: write permissions.
