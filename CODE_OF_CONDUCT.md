@@ -117,4 +117,4 @@ https://www.contributor-covenant.org/version/2/1/code_of_conduct.html.
 
 本行为准则改编自 [Contributor Covenant（贡献者公约）](https://www.contributor-covenant.org)
 2.1 版本，原文见
-https://www.contributor-covenant.org/zh-cn/version/2/1/code_of_conduct/。
+<https://www.contributor-covenant.org/zh-cn/version/2/1/code_of_conduct/>。
