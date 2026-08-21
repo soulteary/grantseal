@@ -17,9 +17,9 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         with:
           go-version: "1.26"
           check-latest: true
@@ -57,7 +57,7 @@ jobs:
     name: coverage gate
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       # GTR runs `go test` once with the race detector and derives both test
       # stats and coverage from that single run, then enforces the gates.
@@ -76,7 +76,7 @@ jobs:
 
       - name: upload raw test results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: go-test-report-${{ github.run_id }}
           path: .github/test-results/
@@ -86,7 +86,7 @@ jobs:
     name: docs & sensitive files
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: install ripgrep
         run: sudo apt-get update && sudo apt-get install -y ripgrep
@@ -100,7 +100,7 @@ jobs:
         run: bash scripts/check-sensitive-files.sh .
 
       - name: markdown link check
-        uses: gaurav-nelson/github-action-markdown-link-check@v1
+        uses: tcort/github-action-markdown-link-check@v1
         with:
           use-quiet-mode: "yes"
           use-verbose-mode: "yes"
@@ -109,9 +109,9 @@ jobs:
     name: benchmark smoke (compile & run once)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         with:
           go-version: "1.26"
           check-latest: true
@@ -123,9 +123,9 @@ jobs:
     name: fuzz (short)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         with:
           go-version: "1.26"
           check-latest: true
@@ -151,7 +151,7 @@ jobs:
       group: coverage-report-${{ github.ref }}
       cancel-in-progress: false
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       # Regenerate .github/go-test-report.md, .github/coverage.svg, and
       # .github/go-test-report.json and commit them only when they change.
