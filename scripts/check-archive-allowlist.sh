@@ -23,9 +23,12 @@
 #   - the CLI binary:            license-tool  or  license-tool.exe
 #   - documentation / legal:     LICENSE, LICENSE.*, README, README.*
 #
-# In image mode the read-only distroless base layer additionally contributes a
-# fixed, known set of system files (CA bundle, /etc/passwd, tmp, nonroot home,
-# os-release); those exact paths are allowlisted by full path.
+# In image mode the base layer additionally contributes a known set of system
+# files. Both the distroless/static:nonroot base (CA bundle, /etc/passwd, tmp,
+# nonroot home, os-release) and Debian-slim style bases (bin/sbin/lib64,
+# /dev/*, dpkg metadata under var/lib/dpkg, the runtime-injected /.dockerenv)
+# are allowlisted by path prefix. A stray private key, source tree, or other
+# unexpected file at an unknown path still fails the check.
 #
 # Directory entries (paths ending in "/") are ignored. Anything else — an extra
 # file, a stray key, a nested path — fails the check.
@@ -51,8 +54,11 @@ if [ "${1:-}" = "--image" ]; then
     exit 0
   fi
 
-  # Exact filesystem paths the distroless/static:nonroot base legitimately
-  # contributes. Anything outside this set OR the app allowlist fails.
+  # Filesystem paths a minimal Linux base image legitimately contributes.
+  # Covers the distroless/static:nonroot base as well as Debian-slim style
+  # bases (bin/sbin/lib64, /dev/*, dpkg metadata, the runtime-injected
+  # /.dockerenv). Anything outside this set OR the app allowlist fails, so a
+  # stray private key or source tree is still rejected regardless of base.
   image_path_allowed() {
     local p="$1"
     # Normalize: drop leading "./" and trailing "/".
@@ -60,11 +66,17 @@ if [ "${1:-}" = "--image" ]; then
     p="${p%/}"
     case "$p" in
       "" ) return 0 ;;                         # root / dir entries
+      .dockerenv ) return 0 ;;                 # injected by the docker runtime
       etc | etc/* ) return 0 ;;                # passwd, group, ssl certs, os-release
-      var | var/run | var/run/* | run | run/* ) return 0 ;;
+      var | var/* ) return 0 ;;                # var/run, dpkg status.d metadata, logs
+      run | run/* ) return 0 ;;
       tmp ) return 0 ;;
+      root ) return 0 ;;
       home | home/nonroot ) return 0 ;;
-      usr | usr/* | lib | lib/* | dev | proc | sys ) return 0 ;;
+      # Standard FHS system directories present on Debian-slim style bases.
+      bin | bin/* | sbin | sbin/* | lib | lib/* | lib32 | lib32/* | lib64 | lib64/* | libx32 | libx32/* ) return 0 ;;
+      usr | usr/* ) return 0 ;;
+      dev | dev/* | proc | proc/* | sys | sys/* ) return 0 ;;
       license-tool ) return 0 ;;               # the app binary at image root
       LICENSE | LICENSE.* | README | README.* ) return 0 ;;
       *) return 1 ;;

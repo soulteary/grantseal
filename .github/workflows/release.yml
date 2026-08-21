@@ -114,10 +114,30 @@ jobs:
 
       # Also validate the FINAL container image contents, not just the tar.gz /
       # zip archives. goreleaser leaves the per-arch images loaded locally, so
-      # inspect the amd64 image built on this runner: it must contain only the
-      # app binary + legal files on top of the distroless base scaffolding.
+      # inspect the amd64 image built on THIS runner: it must contain only the
+      # app binary + legal files on top of the base image scaffolding.
+      #
+      # Pin to the exact version tag (e.g. soulteary/grantseal:1.2.3-amd64)
+      # instead of the floating `latest-amd64`. The floating tag can resolve to
+      # a previously published image if the freshly built one was not loaded
+      # into the local docker engine, which would silently check the wrong
+      # (possibly stale, differently-based) image. The `docker image inspect`
+      # guard fails loudly if the just-built image is missing locally rather
+      # than letting `docker create` pull an old tag from the registry.
       - name: verify release image allowlist
-        run: bash scripts/check-archive-allowlist.sh --image "soulteary/grantseal:latest-amd64"
+        run: |
+          set -euo pipefail
+          # goreleaser strips the leading "v" from the git tag for {{ .Version }}.
+          version="${GITHUB_REF_NAME#v}"
+          image="soulteary/grantseal:${version}-amd64"
+          echo "checking locally-built image: $image"
+          if ! docker image inspect "$image" >/dev/null 2>&1; then
+            echo "error: expected locally-built image '$image' not found." >&2
+            echo "The release build must load the per-arch image into the local" >&2
+            echo "docker engine before this check runs." >&2
+            exit 1
+          fi
+          bash scripts/check-archive-allowlist.sh --image "$image"
 
       # TODO(supply-chain): sign released artifacts and images with cosign
       # (keyless / OIDC) once the repository has an OIDC identity configured:
