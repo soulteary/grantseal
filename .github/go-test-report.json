@@ -8,9 +8,9 @@
   },
   "coverage": {
     "covered_statements": 980,
-    "total_statements": 1264,
-    "percentage": 77.53,
-    "threshold": 77
+    "total_statements": 1217,
+    "percentage": 80.53,
+    "threshold": 80
   },
   "packages": [
     {
@@ -19,13 +19,6 @@
       "tests": 20,
       "failed": 0,
       "coverage": 70.68
-    },
-    {
-      "name": "examples/client",
-      "status": "no_tests",
-      "tests": 0,
-      "failed": 0,
-      "coverage": 0
     },
     {
       "name": "internal/issuer",
