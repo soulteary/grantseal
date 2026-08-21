@@ -5,6 +5,9 @@
 *.test
 *.out
 
+# goreleaser build/release output
+/dist/
+
 # Private keys MUST NEVER be committed
 *.pem
 *.key

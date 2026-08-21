@@ -24,6 +24,7 @@ Commands:
   inspect       Verify signature and print the payload (no policy checks)
   fingerprint   Compute this device's fingerprint / request code
   revoke-list   Build a signed revocation list
+  version       Print the license-tool version
 
 Run "license-tool <command> -h" for command-specific flags.
 `
@@ -52,6 +53,8 @@ func main() {
 		err = cmdFingerprint(args)
 	case "revoke-list":
 		err = cmdRevokeList(args)
+	case "version", "--version", "-v":
+		err = cmdVersion(args)
 	case "-h", "--help", "help":
 		fmt.Fprint(os.Stdout, usage)
 		return

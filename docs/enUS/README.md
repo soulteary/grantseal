@@ -1,5 +1,7 @@
 # grantseal — Offline Software Licensing (English)
 
+[English](./README.md) | [中文文档](../zhCN/README.md) — back to the [project README](../../README.md)
+
 grantseal is a commercial-grade offline software licensing system built with
 Go 1.26 and **only the standard library**. It issues, verifies, and manages
 Ed25519-signed licenses with device binding, feature/limit gating, expiry with
@@ -91,6 +93,40 @@ go run ./cmd/license-tool fingerprint -namespace acme-app -request-code
 # Build a signed revocation list
 go run ./cmd/license-tool revoke-list -key ./keys/k1-private.key -key-id k1 \
   -ids lic_abc,lic_def -out revoked.json
+```
+
+## Install & Docker
+
+`license-tool` is the **issuer-side** binary and holds private-key logic, so it
+is meant for authorized issuers only.
+
+- **Release binary:** download from the
+  [releases page](https://github.com/soulteary/grantseal/releases).
+- **Homebrew (macOS / Linux):**
+
+```bash
+brew tap soulteary/tap
+brew install soulteary/tap/grantseal
+```
+
+- **Docker:** `docker pull soulteary/grantseal:latest`
+
+> **Private-key safety.** The image never bundles `keys/` or any `*.key` file.
+> Mount your private key at runtime with `-v` (read-only) — never bake it into
+> an image — and keep it on a trusted issuer machine.
+
+```bash
+# Issue a license with a read-only mounted private key
+docker run --rm \
+  -v "$PWD/keys:/work/keys:ro" \
+  -v "$PWD:/work" \
+  soulteary/grantseal:latest \
+  issue -config /work/examples/issue-config.json \
+  -key /work/keys/k1-private.key -out /work/customer.lic
+
+# Client-side verification only needs the public key
+docker run --rm -v "$PWD:/work" soulteary/grantseal:latest \
+  verify -license /work/customer.lic -pubkey /work/keys/k1-public.key
 ```
 
 ## Client integration (library)

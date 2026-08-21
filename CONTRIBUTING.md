@@ -1,5 +1,7 @@
 # Contributing to grantseal
 
+Related: [Code of Conduct](CODE_OF_CONDUCT.md) | [Security Policy](SECURITY.md) | [Docs: English](docs/enUS/README.md) · [中文文档](docs/zhCN/README.md)
+
 Thanks for your interest in improving grantseal.
 
 ## Ground rules

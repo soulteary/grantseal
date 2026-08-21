@@ -1,5 +1,7 @@
 # Security Policy
 
+Related: [Code of Conduct](CODE_OF_CONDUCT.md) | [Contributing Guide](CONTRIBUTING.md) | [Docs: English](docs/enUS/README.md) · [中文文档](docs/zhCN/README.md)
+
 ## Threat model & honest boundaries
 
 grantseal is an **offline** licensing system. Its goal is to **raise the cost of

@@ -1,5 +1,7 @@
 # grantseal — 离线软件授权系统（简体中文）
 
+[English](../enUS/README.md) | [中文文档](./README.md) —— 返回[项目 README](../../README.md)
+
 grantseal 是使用 Go 1.26 **纯标准库**实现的商业级离线软件授权系统。它负责签发、
 验证与管理基于 **Ed25519** 签名的授权文件，支持设备绑定、功能/额度门禁、带宽限期
 的到期策略、时钟回拨检测以及签名撤销列表。
@@ -63,6 +65,37 @@ go run ./cmd/license-tool verify -license customer.lic -pubkey ./keys/k1-public.
 go run ./cmd/license-tool fingerprint -namespace acme-app -json
 go run ./cmd/license-tool revoke-list -key ./keys/k1-private.key -key-id k1 \
   -ids lic_abc,lic_def -out revoked.json
+```
+
+## 安装与 Docker
+
+`license-tool` 是**签发端**二进制，含私钥逻辑，仅供授权签发方使用。
+
+- **发布二进制**：从[发布页](https://github.com/soulteary/grantseal/releases)下载。
+- **Homebrew（macOS / Linux）：**
+
+```bash
+brew tap soulteary/tap
+brew install soulteary/tap/grantseal
+```
+
+- **Docker：**`docker pull soulteary/grantseal:latest`
+
+> **私钥安全**：镜像绝不打包 `keys/` 或任何 `*.key` 文件。请在运行时用 `-v`（只读）
+> 挂载私钥，绝不打进镜像，且私钥只保存在受信任的签发端机器上。
+
+```bash
+# 以只读方式挂载私钥来签发授权
+docker run --rm \
+  -v "$PWD/keys:/work/keys:ro" \
+  -v "$PWD:/work" \
+  soulteary/grantseal:latest \
+  issue -config /work/examples/issue-config.json \
+  -key /work/keys/k1-private.key -out /work/customer.lic
+
+# 客户端验证只需公钥
+docker run --rm -v "$PWD:/work" soulteary/grantseal:latest \
+  verify -license /work/customer.lic -pubkey /work/keys/k1-public.key
 ```
 
 ## 客户端集成（库）

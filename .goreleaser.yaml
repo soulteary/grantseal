@@ -1,0 +1,160 @@
+# goreleaser configuration for grantseal (github.com/soulteary/grantseal).
+# goreleaser v2 syntax.
+#
+# NOTE ON DEPRECATION WARNINGS: `dockers`, `docker_manifests` and `brews` are
+# marked deprecated by goreleaser, but their replacements (`dockers_v2` and
+# `homebrew_casks`) are GoReleaser Pro-only. On the free/OSS edition these
+# sections remain the supported way to build multi-arch images and Homebrew
+# packages, and they keep working for the entire v2 series (only removed in a
+# future v3). `goreleaser release` only warns; `goreleaser check` exits non-zero
+# on any deprecation, so do NOT gate CI on `goreleaser check` here — the release
+# workflow runs `release --clean`, which is unaffected by these warnings.
+version: 2
+
+project_name: grantseal
+
+before:
+  hooks:
+    # grantseal has zero third-party dependencies; tidy is a cheap sanity check.
+    - go mod tidy
+
+builds:
+  - id: license-tool
+    main: ./cmd/license-tool
+    binary: license-tool
+    env:
+      - CGO_ENABLED=0
+    flags:
+      - -trimpath
+    ldflags:
+      # -s -w strips debug info; main.version is the CLI version variable
+      # declared in cmd/license-tool/version.go.
+      - -s -w -X main.version={{.Version}}
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+
+archives:
+  - id: license-tool
+    ids:
+      - license-tool
+    # Use tar.gz everywhere except Windows, which gets a zip.
+    formats: [tar.gz]
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+    name_template: >-
+      {{ .ProjectName }}_
+      {{- .Version }}_
+      {{- .Os }}_
+      {{- .Arch }}
+    files:
+      - LICENSE
+      - README.md
+
+checksum:
+  name_template: "checksums.txt"
+  algorithm: sha256
+
+changelog:
+  sort: asc
+  use: github
+  # Group commits by conventional-commit prefix.
+  groups:
+    - title: Features
+      regexp: '^.*?feat(\([[:word:]]+\))??!?:.+$'
+      order: 0
+    - title: Bug fixes
+      regexp: '^.*?fix(\([[:word:]]+\))??!?:.+$'
+      order: 1
+    - title: Performance improvements
+      regexp: '^.*?perf(\([[:word:]]+\))??!?:.+$'
+      order: 2
+    - title: Others
+      order: 999
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^chore:"
+      - "^ci:"
+      - "merge conflict"
+      - Merge pull request
+      - Merge remote-tracking branch
+      - Merge branch
+
+# Multi-arch container images. Each entry builds a single-arch image; the
+# docker_manifests section below stitches them into one multi-arch tag.
+dockers:
+  - id: license-tool-amd64
+    goos: linux
+    goarch: amd64
+    dockerfile: docker/Dockerfile.goreleaser
+    use: buildx
+    image_templates:
+      - "soulteary/grantseal:{{ .Version }}-amd64"
+      - "soulteary/grantseal:{{ .Major }}.{{ .Minor }}-amd64"
+      - "soulteary/grantseal:latest-amd64"
+    build_flag_templates:
+      - "--platform=linux/amd64"
+      - "--label=org.opencontainers.image.title={{ .ProjectName }}"
+      - "--label=org.opencontainers.image.version={{ .Version }}"
+      - "--label=org.opencontainers.image.revision={{ .FullCommit }}"
+      - "--label=org.opencontainers.image.source=https://github.com/soulteary/grantseal"
+      - "--label=org.opencontainers.image.licenses=Apache-2.0"
+  - id: license-tool-arm64
+    goos: linux
+    goarch: arm64
+    dockerfile: docker/Dockerfile.goreleaser
+    use: buildx
+    image_templates:
+      - "soulteary/grantseal:{{ .Version }}-arm64"
+      - "soulteary/grantseal:{{ .Major }}.{{ .Minor }}-arm64"
+      - "soulteary/grantseal:latest-arm64"
+    build_flag_templates:
+      - "--platform=linux/arm64"
+      - "--label=org.opencontainers.image.title={{ .ProjectName }}"
+      - "--label=org.opencontainers.image.version={{ .Version }}"
+      - "--label=org.opencontainers.image.revision={{ .FullCommit }}"
+      - "--label=org.opencontainers.image.source=https://github.com/soulteary/grantseal"
+      - "--label=org.opencontainers.image.licenses=Apache-2.0"
+
+docker_manifests:
+  - name_template: "soulteary/grantseal:{{ .Version }}"
+    image_templates:
+      - "soulteary/grantseal:{{ .Version }}-amd64"
+      - "soulteary/grantseal:{{ .Version }}-arm64"
+  - name_template: "soulteary/grantseal:{{ .Major }}.{{ .Minor }}"
+    image_templates:
+      - "soulteary/grantseal:{{ .Major }}.{{ .Minor }}-amd64"
+      - "soulteary/grantseal:{{ .Major }}.{{ .Minor }}-arm64"
+  - name_template: "soulteary/grantseal:latest"
+    image_templates:
+      - "soulteary/grantseal:latest-amd64"
+      - "soulteary/grantseal:latest-arm64"
+
+# Homebrew formula pushed to the tap repo soulteary/homebrew-tap.
+# The binary keeps the name `license-tool`, so the installed command is
+# `license-tool` (not `grantseal`).
+brews:
+  - name: grantseal
+    ids:
+      - license-tool
+    repository:
+      owner: soulteary
+      name: homebrew-tap
+      # PAT with write access to the tap repo; provided by release.yml as
+      # the HOMEBREW_TAP_TOKEN secret (the default GITHUB_TOKEN cannot push
+      # to a different repository).
+      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
+    homepage: "https://github.com/soulteary/grantseal"
+    description: "grantseal offline license issuer/verifier CLI (license-tool)"
+    license: "Apache-2.0"
+    install: |
+      bin.install "license-tool"
+    test: |
+      system "#{bin}/license-tool", "version"

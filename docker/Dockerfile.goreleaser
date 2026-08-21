@@ -1,0 +1,15 @@
+# Dockerfile used by goreleaser's `dockers` section.
+#
+# goreleaser cross-compiles the binary first and provides it in the build
+# context, so this file only needs to COPY the pre-built `license-tool` into a
+# minimal distroless runtime. No Go toolchain / compilation happens here.
+#
+# SECURITY: this image never contains private keys. Private keys stay on the
+# host and are mounted at runtime (e.g. `-v $PWD/keys:/keys:ro`).
+
+FROM gcr.io/distroless/static:nonroot
+
+COPY license-tool /license-tool
+
+ENTRYPOINT ["/license-tool"]
+CMD ["--help"]

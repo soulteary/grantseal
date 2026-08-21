@@ -1,0 +1,45 @@
+# Keep private keys and secrets OUT of the Docker build context so they can
+# never be COPYd into an image, even accidentally.
+keys/
+*.key
+*.pem
+*-private.*
+private-*.*
+issuer-*.key
+
+# Issued / local license state.
+*.lic
+*.license
+state/
+rollback.state
+
+# Generated example outputs.
+examples/out/
+
+# Build artifacts and binaries.
+/license-tool
+license-tool
+bin/
+*.exe
+*.test
+*.out
+
+# Coverage / profiling.
+coverage.html
+coverage.out
+*.prof
+
+# VCS and CI metadata (not needed inside the image).
+.git
+.github
+.gitignore
+
+# Docs and community files (not needed inside the image).
+docs/
+*.md
+
+# OS / editor cruft.
+.DS_Store
+*.swp
+.idea/
+.vscode/
