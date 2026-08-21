@@ -21,6 +21,9 @@ The Go `internal/` mechanism guarantees a client that imports `pkg/license`
 cannot import `internal/issuer`, so private-key logic never links into a client
 binary.
 
+Runnable examples and multi-scenario issue/verify configs live in
+[`../../examples/README.md`](../../examples/README.md).
+
 ## Data model (`pkg/license.Payload`)
 
 | Field                | Notes                                                      |
@@ -66,6 +69,51 @@ If the anti-rollback state file is corrupt, the policy is fail-closed by
 tolerated and reset. Any failure is **fail-closed** with a stable `LICENSE_*`
 code; malformed input returns an error and **never panics**.
 
+## Issue config
+
+The `issue` command reads a JSON config and signs it into a license. See
+[`../../examples/issue-config.json`](../../examples/issue-config.json) for a full
+example and [`../../examples/scenarios/`](../../examples/scenarios/) for
+scenario-specific variants. Fields:
+
+- **`key_id`** *(required)* — ID of the signing key; must match the private key
+  passed to `issue` and is recorded in the envelope. Example: `"k1"`.
+- **`product_id`** *(recommended)* — Product this license is for; the client
+  rejects a mismatch with `LICENSE_PRODUCT_MISMATCH`. Example: `"acme-app"`.
+- **`customer_id`** — Stable customer identifier. Example: `"cust_00042"`.
+- **`customer_name`** — Human-friendly customer name. Example:
+  `"ACME Corporation"`.
+- **`edition`** *(required)* — One of `trial`/`basic`/`professional`/
+  `enterprise` (whitelist). Drives the default feature set.
+- **`license_type`** *(required)* — One of `trial`/`subscription`/`lifetime`
+  (whitelist). **Time constraint:** `trial` and `subscription` **must** carry
+  `expires_at`; `lifetime` **must not** carry `expires_at` and never expires.
+- **`not_before`** *(optional)* — RFC3339 UTC activation time. Before it the
+  license yields `LICENSE_NOT_YET_VALID`. Must not precede `issued_at`.
+- **`expires_at`** — RFC3339 UTC hard expiry. **Required** for `trial`/
+  `subscription`; **omit** for `lifetime`. Must not be earlier than `issued_at`
+  (the issuer statically rejects such configs as `LICENSE_MALFORMED`).
+- **`grace_period_days`** — Integer `0`–`3650`; extends usability past
+  `expires_at` (status `grace`) before `LICENSE_EXPIRED`.
+- **`features`** — String array of granted feature flags; unioned with the
+  edition defaults. Example: `["export_pdf", "webhooks"]`.
+- **`limits`** — Map of non-negative integer quotas, range-validated. Example:
+  `{"max_seats": 50, "max_projects": 200}`. An undeclared key is treated as
+  **unlimited** by `CheckLimit`.
+- **`device_binding`** — `{"mode": "none"|"single"|"multi", "device_ids": [...]}`.
+  `single`/`multi` bind to the listed fingerprints; a non-matching device yields
+  `LICENSE_DEVICE_MISMATCH`.
+- **`version_constraint`** — `{"min_version", "max_version",
+  "maintenance_until", "covered_max_version"}`. While `maintenance_until` is
+  active all in-range versions are covered; afterward only
+  `<= covered_max_version` remain covered (else `LICENSE_VERSION_UNSUPPORTED`).
+- **`metadata`** — Free-form `string → string` map for issuer bookkeeping (e.g.
+  `order_id`, `region`); not interpreted by the verifier.
+
+> `license_id` and `serial_number` are normally generated with `crypto/rand` at
+> issue time; the scenario fixtures set `license_id` explicitly only to make
+> revocation assertions deterministic.
+
 ## CLI usage
 
 ```bash
@@ -93,6 +141,9 @@ go run ./cmd/license-tool fingerprint -namespace acme-app -request-code
 # Build a signed revocation list
 go run ./cmd/license-tool revoke-list -key ./keys/k1-private.key -key-id k1 \
   -ids lic_abc,lic_def -out revoked.json
+
+# Print the license-tool version
+go run ./cmd/license-tool version
 ```
 
 ## Install & Docker
@@ -116,6 +167,10 @@ brew install soulteary/tap/grantseal
 > an image — and keep it on a trusted issuer machine.
 
 ```bash
+# Issuer: generate a key pair into a host directory, then keep it off the image
+docker run --rm -v "$PWD/keys:/work/keys" soulteary/grantseal:latest \
+  keygen -key-id k1 -out-dir /work/keys
+
 # Issue a license with a read-only mounted private key
 docker run --rm \
   -v "$PWD/keys:/work/keys:ro" \
@@ -185,6 +240,81 @@ delegates to `pkg/fingerprint` for an activation/request code.
 
 
 See [`../../examples/client/main.go`](../../examples/client/main.go).
+
+## Error codes
+
+Every failure path returns a stable, machine-readable `LICENSE_*` code (see
+[`../../pkg/license/errors.go`](../../pkg/license/errors.go)). These strings are
+part of the public contract and are safe to switch on for UX. Use
+`license.CodeOf(err)` to extract one. The full set (23 codes):
+
+- **`LICENSE_OK`** — Validation succeeded. *Trigger:* a valid, in-window license.
+  *UX:* proceed; optionally surface remaining days / edition.
+- **`LICENSE_FILE_NOT_FOUND`** — The license file path does not exist. *Trigger:*
+  missing or wrong path on first run. *UX:* prompt the user to import/select a
+  license file.
+- **`LICENSE_FILE_TOO_LARGE`** — File exceeds the 64 KiB cap. *Trigger:* corrupt
+  or hostile input. *UX:* reject as invalid; ask for a fresh license.
+- **`LICENSE_MALFORMED`** — Envelope/JSON cannot be parsed or is structurally
+  invalid. *Trigger:* truncated/edited file, wrong file type. *UX:* "invalid
+  license file", offer re-import.
+- **`LICENSE_UNSUPPORTED_ALGORITHM`** — Envelope algorithm is not `Ed25519`.
+  *Trigger:* wrong/forged algorithm field. *UX:* reject as invalid.
+- **`LICENSE_UNSUPPORTED_SCHEMA`** — `schema_version` is not `1`. *Trigger:* a
+  license issued by a newer/older incompatible tool. *UX:* prompt to upgrade the
+  app or obtain a compatible license.
+- **`LICENSE_KEY_UNKNOWN`** — The envelope `key_id` is not in the client's key
+  ring. *Trigger:* license signed by a key the app does not embed. *UX:* treat
+  as invalid; may indicate a wrong build/channel.
+- **`LICENSE_KEY_DISABLED`** — The signing key exists but is disabled in the
+  ring. *Trigger:* operator retired the key. *UX:* ask the user to obtain a
+  re-issued license.
+- **`LICENSE_KEY_REVOKED`** — The signing key is outside its validity window /
+  revoked in the ring. *Trigger:* key rotation/compromise. *UX:* request a
+  re-issued license.
+- **`LICENSE_SIGNATURE_INVALID`** — Signature does not verify over the canonical
+  payload. *Trigger:* tampered payload or wrong public key. *UX:* reject as
+  invalid/forged.
+- **`LICENSE_KEY_ID_MISMATCH`** — Payload `key_id` disagrees with the envelope /
+  verifying key. *Trigger:* spliced/edited license. *UX:* reject as invalid.
+- **`LICENSE_INVALID_ENUM`** — `edition` or `license_type` is not in the
+  whitelist. *Trigger:* hand-edited or corrupt config. *UX:* reject as invalid.
+- **`LICENSE_INVALID_LIMITS`** — A `limits` value is out of range (e.g.
+  negative). *Trigger:* malformed issue config. *UX:* reject as invalid.
+- **`LICENSE_REVOKED`** — The license ID appears in a signed revocation list.
+  *Trigger:* issuer revoked this specific license. *UX:* "license revoked",
+  direct the user to support/renewal.
+- **`LICENSE_NOT_YET_VALID`** — Current time is before `not_before`. *Trigger:*
+  future activation date or a rolled-back clock. *UX:* show the activation date;
+  suggest checking the system clock.
+- **`LICENSE_EXPIRED`** — Past `expires_at` (and grace period, if any).
+  *Trigger:* trial/subscription lapsed. *UX:* prompt to renew; show expiry date.
+- **`LICENSE_CLOCK_ROLLBACK`** — Detected system time earlier than the trusted
+  high-water mark. *Trigger:* clock tampering to dodge expiry. *UX:* warn about
+  the clock; block time-bound features.
+- **`LICENSE_DEVICE_MISMATCH`** — The running device fingerprint is not bound.
+  *Trigger:* license moved to another machine. *UX:* show a device request code
+  and ask the user to re-bind.
+- **`LICENSE_PRODUCT_MISMATCH`** — Payload `product_id` differs from the caller's
+  product. *Trigger:* license for a different product. *UX:* reject as invalid.
+- **`LICENSE_VERSION_UNSUPPORTED`** — The running version is out of the covered
+  range, or no/unparseable version was supplied while a constraint exists.
+  *Trigger:* upgrade beyond the maintenance/covered window. *UX:* prompt to
+  purchase an upgrade or run a covered version.
+- **`LICENSE_FEATURE_DENIED`** — A required feature is not granted (returned by
+  `RequireFeature`). *Trigger:* gating a feature not in the license. *UX:*
+  upsell/upgrade prompt for that feature.
+- **`LICENSE_LIMIT_EXCEEDED`** — A usage counter exceeds its declared limit
+  (returned by `CheckLimit`). *Trigger:* e.g. seats over `max_seats`. *UX:* show
+  the limit and prompt to upgrade.
+- **`LICENSE_STATE_INTEGRITY_FAILURE`** — The anti-rollback state file is corrupt
+  and the policy is fail-closed. *Trigger:* tampered/corrupt state for a
+  `trial`/`subscription` license. *UX:* reject; may require re-activation.
+
+> **Backward-compat alias:** `LICENSE_FEATURE_UNAVAILABLE` is the older spelling
+> of `LICENSE_FEATURE_DENIED`. It is retained only so existing callers that
+> compared against the old string do not break; new code should emit
+> `LICENSE_FEATURE_DENIED`.
 
 ## Online activation (future)
 

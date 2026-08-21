@@ -1,4 +1,143 @@
-# 多场景授权签发与验证示例
+# Examples — Multi-scenario license issuing & verification
+
+[English](#english) | [简体中文](#简体中文) — back to the
+[project README](../README.md)
+
+---
+
+## English
+
+This directory shows how to use `cmd/license-tool` to issue a license for a
+batch of **scenario configs**, then run `verify` (optionally with a revocation
+list / device fingerprint / version) and **automatically assert** that each
+scenario's `status` / `code` matches expectations.
+
+One-shot run:
+
+```bash
+bash examples/run-scenarios.sh
+```
+
+The script will:
+
+1. `keygen` on demand if keys are missing (reusing existing `keys/k1-*.key`);
+2. `issue` each config into `examples/out/`;
+3. build a revocation list `examples/out/revocation.lic` (revoking
+   `lic_demo_revoked`);
+4. run `verify` per scenario with the appropriate flags and assert actual ==
+   expected;
+5. print `PASS/FAIL` per scenario plus a summary, exiting non-zero if any
+   scenario fails.
+
+All artifacts land in `examples/out/` (git-ignored). The original
+`examples/issue-config.json` and `examples/client/main.go` are left untouched.
+
+### Scenario overview
+
+All configs share `product_id=acme-app`, `key_id=k1`, and set `license_id`
+explicitly.
+
+- **01** `scenarios/01-valid-subscription.json` — valid subscription (far-future
+  expiry); `-product acme-app -version 1.4.0` → `valid` / `LICENSE_OK`.
+- **02** `scenarios/02-grace.json` — past hard expiry, still within grace window;
+  `-product acme-app -version 1.4.0` → `grace` / `LICENSE_OK`.
+- **03** `scenarios/03-expired.json` — past hard expiry, no grace;
+  `-product acme-app -version 1.4.0` → `invalid` / `LICENSE_EXPIRED`.
+- **04** `scenarios/04-not-yet-valid.json` — `not_before` in the future;
+  `-product acme-app -version 1.4.0` → `invalid` / `LICENSE_NOT_YET_VALID`.
+- **05** `scenarios/05-lifetime.json` — perpetual license (no expiry);
+  `-product acme-app -version 1.4.0` → `valid` / `LICENSE_OK`.
+- **06** `scenarios/06-trial.json` — trial license;
+  `-product acme-app -version 1.4.0` → `valid` / `LICENSE_OK`.
+- **07a** `scenarios/07-device-single.json` — single-device binding, fingerprint
+  matches; `-device sha256:demo-device-fingerprint-0007` → `valid` /
+  `LICENSE_OK`.
+- **07b** `scenarios/07-device-single.json` — single-device binding, fingerprint
+  mismatch; `-device sha256:some-other-device` → `invalid` /
+  `LICENSE_DEVICE_MISMATCH`.
+- **08a** `scenarios/08-version-constraint.json` — version in range;
+  `-version 1.4.0` → `valid` / `LICENSE_OK`.
+- **08b** `scenarios/08-version-constraint.json` — version out of range;
+  `-version 3.0.0` → `invalid` / `LICENSE_VERSION_UNSUPPORTED`.
+- **09** `scenarios/09-revoked.json` — revoked;
+  `-revocation out/revocation.lic` → `invalid` / `LICENSE_REVOKED`.
+- **10** `scenarios/10-product-mismatch.json` — product mismatch;
+  `-product other-app` → `invalid` / `LICENSE_PRODUCT_MISMATCH`.
+
+> On success `verify` exits `0` with `code = LICENSE_OK`; failing scenarios exit
+> non-zero with the matching error code and `status = invalid`. `grace` counts
+> as "still usable" and exits `0`.
+
+### About the expired / grace timing (important)
+
+The issuing pipeline **rejects** a certificate whose `expires_at` predates
+`issued_at` during static validation (`LICENSE_MALFORMED`, see
+`pkg/license/model.go`). So you **cannot directly issue an already-expired
+certificate** — you cannot use an absolute past time like `2020`.
+
+The verification pipeline also uses a **±5 minute clock skew** by default
+(`DefaultClockSkew`, see `pkg/license/clock.go`): a license is only "expired"
+once `now - skew > expires_at`. To avoid waiting 5 minutes in a demo, the
+`verify` subcommand provides a `-clock-skew` flag (also tunable via the
+`GRANTSEAL_CLOCK_SKEW` env var); the script passes a tiny skew (default `2s`)
+for `expired` / `grace`, shrinking the boundary to a dozen seconds.
+
+Combining both points, `expired` / `grace` use "**short TTL + small clock skew +
+wait until after expiry, then verify**":
+
+- at issue time, `expires_at` is set to a **near-future** time (placeholder
+  `__EXPIRES_AT__` replaced by the script at runtime with `now +
+  SHORT_TTL_SECONDS`, default 8s) so it passes static validation;
+- `verify` is run with `-clock-skew 2s`; the script then `sleep`s until
+  `now > expires_at + 2s`;
+- `02-grace.json` has a large `grace_period_days` (still within the window) →
+  `status=grace`;
+- `03-expired.json` has `grace_period_days=0` (past hard expiry) →
+  `code=LICENSE_EXPIRED`.
+- both share one short TTL and are **merged into a single wait** to avoid
+  waiting twice.
+
+So a full run waits about **10–15 seconds** before grace/expired (short TTL +
+small skew + buffer). Tunable via env vars:
+
+```bash
+# e.g. tune the boundary further (local demo/debug only)
+SHORT_TTL_SECONDS=8 SKEW_SECONDS=2 WAIT_BUFFER_SECONDS=3 bash examples/run-scenarios.sh
+```
+
+- `SHORT_TTL_SECONDS`: seconds after issue until expiry (default 8);
+- `SKEW_SECONDS`: clock skew passed to `verify -clock-skew` (default 2);
+- `WAIT_BUFFER_SECONDS`: extra buffer after crossing the skew boundary
+  (default 3).
+
+> Safety note: `-clock-skew` / `GRANTSEAL_CLOCK_SKEW` only affects the tolerance
+> of time comparisons; the library default is still ±5 minutes. Shrinking it
+> only makes the demo cross the expiry boundary faster and does not affect
+> signature or other checks.
+
+### Directory layout
+
+```
+examples/
+  scenarios/                # 10 scenario issue configs (02/03 contain time placeholders)
+    01-valid-subscription.json
+    02-grace.json
+    03-expired.json
+    04-not-yet-valid.json
+    05-lifetime.json
+    06-trial.json
+    07-device-single.json
+    08-version-constraint.json
+    09-revoked.json
+    10-product-mismatch.json
+  run-scenarios.sh          # one-shot issue + verify + assert script
+  out/                      # run artifacts (.lic / revocation list / rendered config), git-ignored
+  README.md                 # this document
+```
+
+---
+
+## 简体中文
 
 本目录演示如何用 `cmd/license-tool` 对一批**场景化配置**逐个签发许可证,再用
 `verify`(可带吊销列表 / 设备指纹 / 版本)跑出对应结果,并**自动断言**每个场景的

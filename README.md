@@ -1,8 +1,8 @@
 # grantseal
 
-[![CI](https://github.com/soulteary/grantseal/actions/workflows/ci.yml/badge.svg)](https://github.com/soulteary/grantseal/actions/workflows/ci.yml) [![Release](https://github.com/soulteary/grantseal/actions/workflows/release.yml/badge.svg)](https://github.com/soulteary/grantseal/actions/workflows/release.yml) [![Go Report Card](./.github/goreportcard.svg)](https://github.com/soulteary/grantseal/actions/workflows/goreportcard.yml) [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](./LICENSE) [![Go Version](https://img.shields.io/badge/go-1.26-00ADD8.svg)](https://go.dev/)
+[![CI](https://github.com/soulteary/grantseal/actions/workflows/ci.yml/badge.svg)](https://github.com/soulteary/grantseal/actions/workflows/ci.yml) [![Release](https://github.com/soulteary/grantseal/actions/workflows/release.yml/badge.svg)](https://github.com/soulteary/grantseal/actions/workflows/release.yml) [![Go Report Card](https://goreportcard.com/badge/github.com/soulteary/grantseal)](https://goreportcard.com/report/github.com/soulteary/grantseal) [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](./LICENSE) [![Go Version](https://img.shields.io/badge/go-1.26-00ADD8.svg)](https://go.dev/)
 
-[English](#english) | [简体中文](#简体中文) — full docs: [English](./docs/enUS/README.md) | [中文文档](./docs/zhCN/README.md)
+[English](#english) | [简体中文](#简体中文) — full docs: [English](./docs/enUS/README.md) | [中文文档](./docs/zhCN/README.md) — [Changelog](./CHANGELOG.md)
 
 ---
 
@@ -21,7 +21,7 @@ dependencies.
 | `pkg/fingerprint`      | Cross-platform device fingerprint (Linux/macOS/Windows + fallback).  |
 | `internal/issuer`      | **Issuer-side** private-key logic (keygen, signing, issuing, revocation lists). Isolated via Go `internal/`. |
 | `cmd/license-tool`     | Issuer CLI: `keygen`, `public-key`, `issue`, `verify`, `inspect`, `fingerprint`, `revoke-list`, `version`. |
-| `examples/`            | Client integration & batch-issue config examples.                    |
+| `examples/`            | Client integration & batch-issue config examples. See [`examples/README.md`](./examples/README.md). |
 
 ### Security model (summary)
 
@@ -74,29 +74,8 @@ After installation the `license-tool` command is available globally.
 docker pull soulteary/grantseal:latest
 ```
 
-### Docker usage
-
-> **Private-key safety.** The image **never** bundles `keys/` or any `*.key`
-> file. Always mount your private key at runtime with `-v` (read-only) instead
-> of baking it into an image, and keep the key on a trusted issuer machine only.
-
-```bash
-# Issuer: generate a key pair into a host directory, then keep it off the image
-docker run --rm -v "$PWD/keys:/work/keys" soulteary/grantseal:latest \
-  keygen -key-id k1 -out-dir /work/keys
-
-# Issue a license — private key is mounted read-only, never copied into the image
-docker run --rm \
-  -v "$PWD/keys:/work/keys:ro" \
-  -v "$PWD:/work" \
-  soulteary/grantseal:latest \
-  issue -config /work/examples/issue-config.json \
-  -key /work/keys/k1-private.key -out /work/customer.lic
-
-# Client-side verification needs only the public key
-docker run --rm -v "$PWD:/work" soulteary/grantseal:latest \
-  verify -license /work/customer.lic -pubkey /work/keys/k1-public.key
-```
+For full Docker usage (issuer keygen/issue and client verify, with private-key
+safety notes) see [`docs/enUS/README.md`](./docs/enUS/README.md#install--docker).
 
 ---
 
@@ -109,6 +88,7 @@ docker run --rm -v "$PWD:/work" soulteary/grantseal:latest \
 - `pkg/fingerprint`：跨平台设备指纹。
 - `internal/issuer`：签发端私钥逻辑（Go `internal/` 物理隔离）。
 - `cmd/license-tool`：签发端 CLI。
+- `examples/`：客户端集成与批量签发配置示例，见 [`examples/README.md`](./examples/README.md)。
 
 详见 [`docs/zhCN/README.md`](./docs/zhCN/README.md) 与 [`SECURITY.md`](./SECURITY.md)。
 
@@ -148,25 +128,5 @@ brew install soulteary/tap/grantseal
 docker pull soulteary/grantseal:latest
 ```
 
-### Docker 用法
-
-> **私钥安全**：镜像**绝不**打包 `keys/` 或任何 `*.key` 文件。请在运行时用 `-v`（只读）
-> 挂载私钥，而不是把私钥打进镜像；私钥只保存在受信任的签发端机器上。
-
-```bash
-# 签发端：把密钥对生成到宿主机目录，切勿打进镜像
-docker run --rm -v "$PWD/keys:/work/keys" soulteary/grantseal:latest \
-  keygen -key-id k1 -out-dir /work/keys
-
-# 签发授权：私钥以只读方式挂载，绝不复制进镜像
-docker run --rm \
-  -v "$PWD/keys:/work/keys:ro" \
-  -v "$PWD:/work" \
-  soulteary/grantseal:latest \
-  issue -config /work/examples/issue-config.json \
-  -key /work/keys/k1-private.key -out /work/customer.lic
-
-# 客户端验证只需公钥
-docker run --rm -v "$PWD:/work" soulteary/grantseal:latest \
-  verify -license /work/customer.lic -pubkey /work/keys/k1-public.key
-```
+完整 Docker 用法（签发端 keygen/issue 与客户端 verify，含私钥安全提示）见
+[`docs/zhCN/README.md`](./docs/zhCN/README.md#安装与-docker)。
