@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 
@@ -13,8 +14,15 @@ import (
 // ioSkipIfRoot skips permission-based failure tests when running as root,
 // because a 0o500 directory mode does not deny writes to the superuser and
 // would make the "write must fail" expectation flaky in CI.
+//
+// It also skips on Windows, where directory permission bits do not follow
+// POSIX semantics: os.Chmod cannot make a directory deny file creation, so a
+// read-only directory does not force the write failure these tests exercise.
 func ioSkipIfRoot(t *testing.T) {
 	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("windows does not enforce POSIX directory write permissions")
+	}
 	if os.Geteuid() == 0 {
 		t.Skip("running as root defeats read-only directory permissions")
 	}

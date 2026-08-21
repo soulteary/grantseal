@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -556,6 +557,9 @@ func TestCmdVerifyMissingPubkeyFlag(t *testing.T) {
 
 func requireUnwritableDir(t *testing.T) string {
 	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("windows does not enforce POSIX directory write permissions")
+	}
 	if os.Geteuid() == 0 {
 		t.Skip("running as root: permission bits are bypassed, cannot force a write failure")
 	}
