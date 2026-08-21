@@ -29,13 +29,14 @@ examples/          客户端集成 + 批量签发配置
 - `features`：与 edition 默认功能取并集。
 - `limits`：非负、带范围校验的整型。
 - `device_binding`：`none`/`single`/`multi` + 设备指纹列表。
-- `version_constraint`：`min/max_version` + `maintenance_until` + `covered_max_version`。`maintenance_until` 未过期时，范围内所有版本均被覆盖；过期后，仅 `<= covered_max_version` 的版本仍被覆盖，更高版本判为 `LICENSE_VERSION_UNSUPPORTED`。未携带 `covered_max_version` 的旧许可回退到旧行为（严格高于 `min_version`（维护基线）的版本不被覆盖；若 `min_version` 也为空则跳过该门）。
+- `version_constraint`：`min/max_version` + `maintenance_until` + `covered_max_version`。`maintenance_until` 未过期时，范围内所有版本均被覆盖；过期后，仅 `<= covered_max_version` 的版本仍被覆盖，更高版本判为 `LICENSE_VERSION_UNSUPPORTED`。未携带 `covered_max_version` 的旧许可回退到旧行为（严格高于 `min_version`（维护基线）的版本不被覆盖；若 `min_version` 也为空则跳过该门）。**fail-closed：** 若许可声明了任意版本约束，但调用方未传入运行版本（或传入无法解析的版本），验证直接拒绝并返回 `LICENSE_VERSION_UNSUPPORTED`。因此只要许可可能携带版本约束，调用方就必须传入 `ProductVersion`。
 - `metadata`：自由字符串映射。
 - `key_id`：必须与签名密钥、信封一致。
 
 签名覆盖 payload 的确定性**规范化**（键排序）JSON。传输格式为
 `Envelope{algorithm,key_id,payload,signature}`，其中 `payload` 与 `signature`
-为 Base64URL。
+为 Base64URL。公钥/私钥文件仅按 **URL-safe Base64** 解析（`AddPublicKeyBase64` /
+`DecodePrivateKey`）；含 `+`/`/` 的标准字母表 Base64 会被拒绝，以消除歧义解析。
 
 ## 验证流程
 

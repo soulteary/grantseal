@@ -113,10 +113,20 @@ func (r ValidationResult) GetLimit(key string) (int64, bool) { return r.Limit(ke
 // CheckLimit returns nil when `current` is within the licensed limit for `key`,
 // or a *Error with CodeLimitExceeded when it is exceeded.
 //
-// Missing-key policy: if the license does not declare `key`, the resource is
-// treated as UNLIMITED and CheckLimit returns nil. This is intentional so that
-// adding a new metered resource does not retroactively lock out existing
-// licenses that predate it; issuers must set a limit to enforce a cap.
+// MISUSE WARNING (#13) — Missing-key policy: if the license does not declare
+// `key`, the resource is treated as UNLIMITED and CheckLimit returns nil. This
+// is intentional so that adding a new metered resource does not retroactively
+// lock out existing licenses that predate it; issuers must set a limit to
+// enforce a cap.
+//
+// The danger: a TYPO in `key` (e.g. "seat" vs "seats") silently matches no
+// declared limit and therefore returns nil (unlimited) — it does NOT error and
+// does NOT enforce the intended cap. Never assume a nil return means "within a
+// configured limit"; it can also mean "no such limit was declared". If a caller
+// needs to distinguish "unlimited/undeclared" from "explicitly limited", it
+// must consult Limit(key)/GetLimit(key) (which reports the `ok` flag) BEFORE
+// relying on CheckLimit for enforcement. Use a fixed, reviewed set of limit
+// keys shared between issuer and client to avoid silent typos.
 //
 // A non-Valid() result denies everything (returns CodeLimitExceeded).
 func (r ValidationResult) CheckLimit(key string, current int64) error {

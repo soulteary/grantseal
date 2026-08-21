@@ -31,12 +31,3 @@ func EffectiveFeatures(p *Payload) []string {
 	sort.Strings(out)
 	return out
 }
-
-// featureSet builds a lookup set of effective features.
-func featureSet(p *Payload) map[string]struct{} {
-	out := make(map[string]struct{})
-	for _, f := range EffectiveFeatures(p) {
-		out[f] = struct{}{}
-	}
-	return out
-}

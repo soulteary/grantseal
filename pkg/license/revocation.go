@@ -76,7 +76,7 @@ func ParseRevocationEnvelope(data []byte) (*RevocationEnvelope, error) {
 	if len(data) == 0 {
 		return nil, newError(CodeMalformed, "empty revocation data", nil)
 	}
-	if len(data) > MaxLicenseFileSize {
+	if len(data) > MaxRevocationFileSize {
 		return nil, newError(CodeFileTooLarge, "revocation data exceeds size cap", nil)
 	}
 	var env RevocationEnvelope
@@ -134,6 +134,9 @@ func LoadRevocationList(ring *KeyRing, data []byte, now time.Time) (RevocationPr
 	}
 	if rl.KeyID != env.KeyID {
 		return nil, newError(CodeKeyIDMismatch, "revocation payload key_id mismatch", nil)
+	}
+	if len(rl.RevokedIDs) > MaxRevokedIDs {
+		return nil, newError(CodeFileTooLarge, "revocation list exceeds entry cap", nil)
 	}
 	set := make(map[string]struct{}, len(rl.RevokedIDs))
 	for _, id := range rl.RevokedIDs {

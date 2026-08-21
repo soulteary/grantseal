@@ -37,13 +37,15 @@ binary.
 | `features`           | Unioned with edition defaults.                             |
 | `limits`             | Range-validated non-negative integers.                     |
 | `device_binding`     | `none`/`single`/`multi` + device fingerprint list.         |
-| `version_constraint` | `min/max_version` + `maintenance_until` + `covered_max_version`. While `maintenance_until` is active all in-range versions are covered. After it lapses, only versions `<= covered_max_version` remain covered; newer builds are rejected as `LICENSE_VERSION_UNSUPPORTED`. Licenses without `covered_max_version` fall back to the legacy behavior (versions strictly newer than `min_version`, the maintained baseline, are not covered; if `min_version` is also empty the gate is skipped). |
+| `version_constraint` | `min/max_version` + `maintenance_until` + `covered_max_version`. While `maintenance_until` is active all in-range versions are covered. After it lapses, only versions `<= covered_max_version` remain covered; newer builds are rejected as `LICENSE_VERSION_UNSUPPORTED`. Licenses without `covered_max_version` fall back to the legacy behavior (versions strictly newer than `min_version`, the maintained baseline, are not covered; if `min_version` is also empty the gate is skipped). **Fail-closed:** if the license declares any version constraint but the caller supplies no running version — or a running version that cannot be parsed — validation is rejected with `LICENSE_VERSION_UNSUPPORTED`. Callers must pass `ProductVersion` whenever a version constraint may be present. |
 | `metadata`           | Free-form string map.                                      |
 | `key_id`             | Must match the signing key and envelope.                   |
 
 Signatures cover the deterministic **canonical** (sorted-key) JSON of the
 payload. The wire format is an `Envelope{algorithm,key_id,payload,signature}`
-where `payload` and `signature` are Base64URL.
+where `payload` and `signature` are Base64URL. Public and private key files are
+parsed as **URL-safe Base64 only** (`AddPublicKeyBase64` / `DecodePrivateKey`);
+standard-alphabet Base64 (with `+`/`/`) is rejected to avoid ambiguous parsing.
 
 ## Verification flow
 

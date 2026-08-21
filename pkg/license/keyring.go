@@ -56,15 +56,14 @@ func (r *KeyRing) AddPublicKey(keyID string, pub ed25519.PublicKey) error {
 	return r.Add(KeyEntry{KeyID: keyID, PublicKey: pub, Enabled: true})
 }
 
-// AddPublicKeyBase64 decodes a Base64URL (or std) encoded public key and adds it.
+// AddPublicKeyBase64 decodes a Base64URL-encoded public key and adds it.
+// Only base64.URLEncoding is accepted (the canonical encoding produced by the
+// issuer); the standard-alphabet fallback was removed so encoding is strict and
+// unambiguous across producers and consumers.
 func (r *KeyRing) AddPublicKeyBase64(keyID, encoded string) error {
 	b, err := base64.URLEncoding.DecodeString(encoded)
 	if err != nil {
-		if b2, err2 := base64.StdEncoding.DecodeString(encoded); err2 == nil {
-			b = b2
-		} else {
-			return newError(CodeMalformed, "invalid base64 public key", err)
-		}
+		return newError(CodeMalformed, "invalid base64 public key", err)
 	}
 	return r.AddPublicKey(keyID, ed25519.PublicKey(b))
 }

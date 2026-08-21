@@ -14,6 +14,31 @@ const SchemaVersion = 1
 // mitigate resource-exhaustion attacks.
 const MaxLicenseFileSize = 64 * 1024
 
+// Independent size and entry caps for the other artifacts this package parses,
+// so a large revocation list cannot be constrained by (or constrain) the much
+// smaller license/rollback limits. All bound parsing work up front to mitigate
+// resource-exhaustion attacks.
+const (
+	// MaxRevocationFileSize caps a revocation envelope's on-the-wire size.
+	MaxRevocationFileSize = 4 * 1024 * 1024
+	// MaxRollbackStateSize caps the local anti-rollback state file's size.
+	MaxRollbackStateSize = 4 * 1024
+	// MaxRevokedIDs caps the number of entries in a parsed revocation list.
+	MaxRevokedIDs = 100000
+)
+
+// Payload entry-count and length caps. These bound the fan-out of a signed
+// payload so an over-large (but validly signed) license cannot force unbounded
+// work or memory during validation.
+const (
+	MaxFeatures        = 256
+	MaxLimits          = 256
+	MaxDeviceIDs       = 256
+	MaxMetadataEntries = 256
+	MaxMetadataKeyLen  = 1024
+	MaxMetadataValLen  = 1024
+)
+
 // Algorithm is the signature algorithm. Only Ed25519 is permitted.
 type Algorithm string
 
@@ -169,6 +194,29 @@ func (p *Payload) validateStatic() error {
 	}
 	if p.GracePeriodDays < 0 || p.GracePeriodDays > 3650 {
 		return newError(CodeInvalidLimits, "grace_period_days out of range [0,3650]", nil)
+	}
+	// Entry-count and length caps bound the payload's fan-out so an over-large
+	// (but validly signed) license cannot force unbounded work/memory during
+	// validation.
+	if len(p.Features) > MaxFeatures {
+		return newError(CodeInvalidLimits, fmt.Sprintf("too many features (%d > %d)", len(p.Features), MaxFeatures), nil)
+	}
+	if len(p.Limits) > MaxLimits {
+		return newError(CodeInvalidLimits, fmt.Sprintf("too many limits (%d > %d)", len(p.Limits), MaxLimits), nil)
+	}
+	if len(p.DeviceBinding.DeviceIDs) > MaxDeviceIDs {
+		return newError(CodeInvalidLimits, fmt.Sprintf("too many device_ids (%d > %d)", len(p.DeviceBinding.DeviceIDs), MaxDeviceIDs), nil)
+	}
+	if len(p.Metadata) > MaxMetadataEntries {
+		return newError(CodeInvalidLimits, fmt.Sprintf("too many metadata entries (%d > %d)", len(p.Metadata), MaxMetadataEntries), nil)
+	}
+	for k, v := range p.Metadata {
+		if len(k) > MaxMetadataKeyLen {
+			return newError(CodeInvalidLimits, "metadata key exceeds maximum length", nil)
+		}
+		if len(v) > MaxMetadataValLen {
+			return newError(CodeInvalidLimits, fmt.Sprintf("metadata value for %q exceeds maximum length", k), nil)
+		}
 	}
 	for k, v := range p.Limits {
 		if k == "" {

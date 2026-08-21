@@ -22,7 +22,16 @@ limitations below before relying on it.
 - **Naive clock rollback.** An integrity-protected (HMAC-SHA256) local state
   file records the last trusted time; large backward jumps are detected.
 - **Resource exhaustion.** License files are capped at 64 KiB and parsed with
-  `DisallowUnknownFields`; trailing data is rejected.
+  `DisallowUnknownFields`; trailing data is rejected. Revocation lists and the
+  local anti-rollback state file have their own independent size caps
+  (`MaxRevocationFileSize`, `MaxRollbackStateSize`) and a revocation-entry cap
+  (`MaxRevokedIDs`); payload entry counts and metadata key/value lengths are
+  bounded too.
+- **Version-coverage bypass.** Version-constraint checks are **fail-closed**: a
+  license that declares any version constraint is rejected
+  (`LICENSE_VERSION_UNSUPPORTED`) when the caller supplies no running version,
+  or a running version that cannot be strictly parsed. Callers must pass the
+  running `ProductVersion` whenever a constraint may be present.
 
 ### What grantseal CANNOT protect against (by design)
 
@@ -40,6 +49,9 @@ limitations below before relying on it.
 - **Ed25519 only.** PKCS#1v1.5, MD5, SHA-1, ECB, and any home-grown scheme are
   forbidden.
 - Sensitive comparisons use `crypto/subtle.ConstantTimeCompare`.
+- **Key material is parsed as URL-safe Base64 only.** `AddPublicKeyBase64` and
+  `DecodePrivateKey` reject standard-alphabet Base64 (with `+`/`/`) so there is a
+  single unambiguous encoding for keys.
 - **Private keys never** appear in client code, shipped binaries, git, logs, or
   test fixtures. Signing lives entirely under `internal/issuer` (unimportable by
   clients) and the CLI.

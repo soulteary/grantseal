@@ -107,15 +107,14 @@ func LoadPrivateKey(path string) (ed25519.PrivateKey, error) {
 }
 
 // DecodePrivateKey decodes a Base64URL seed (or full key) into a private key.
+// Only base64.URLEncoding is accepted, matching privateKeyBase64's output; the
+// standard-alphabet fallback was removed to keep the on-disk encoding strict
+// and unambiguous.
 func DecodePrivateKey(encoded string) (ed25519.PrivateKey, error) {
 	trimmed := trimSpace(encoded)
 	raw, err := base64.URLEncoding.DecodeString(trimmed)
 	if err != nil {
-		if raw2, err2 := base64.StdEncoding.DecodeString(trimmed); err2 == nil {
-			raw = raw2
-		} else {
-			return nil, fmt.Errorf("issuer: decode private key base64: %w", err)
-		}
+		return nil, fmt.Errorf("issuer: decode private key base64: %w", err)
 	}
 	switch len(raw) {
 	case ed25519.SeedSize:

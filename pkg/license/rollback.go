@@ -77,7 +77,7 @@ func (s *RollbackStore) Load() (*RollbackState, error) {
 		}
 		return nil, newError(CodeStateIntegrityFailure, "read rollback state", err)
 	}
-	if len(data) > MaxLicenseFileSize {
+	if len(data) > MaxRollbackStateSize {
 		return nil, newError(CodeStateIntegrityFailure, "rollback state too large", nil)
 	}
 	var st RollbackState
@@ -139,11 +139,29 @@ func (s *RollbackStore) CheckRollback(prev *RollbackState, now time.Time) (*Roll
 
 // DeriveRollbackKey derives an HMAC key from a built-in secret and a device
 // fingerprint string, binding the local state to both.
+//
+// SECURITY: passing an empty fingerprint produces a key that depends only on
+// the built-in secret. Such a key is portable across machines and can be
+// forged or transplanted between devices, defeating the point of binding the
+// anti-rollback state to a device. Production callers should use
+// DeriveRollbackKeyStrict, or always pass a non-empty device fingerprint here.
 func DeriveRollbackKey(builtinSecret []byte, fingerprint string) []byte {
 	mac := hmac.New(sha256.New, builtinSecret)
 	mac.Write([]byte("grantseal:rollback:v1"))
 	mac.Write([]byte(fingerprint))
 	return mac.Sum(nil)
+}
+
+// DeriveRollbackKeyStrict behaves like DeriveRollbackKey but refuses to derive
+// a key from an empty fingerprint. Requiring a device fingerprint prevents a
+// portable, secret-only key that could be transplanted or forged across
+// machines. On success it returns the same key DeriveRollbackKey would for the
+// same inputs.
+func DeriveRollbackKeyStrict(builtinSecret []byte, fingerprint string) ([]byte, error) {
+	if fingerprint == "" {
+		return nil, newError(CodeStateIntegrityFailure, "empty device fingerprint for rollback key", nil)
+	}
+	return DeriveRollbackKey(builtinSecret, fingerprint), nil
 }
 
 // atomicWriteFile writes data to a temp file in the same directory and renames

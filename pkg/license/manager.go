@@ -136,6 +136,13 @@ func (m *Manager) Validate(data []byte, ctx ValidationContext) (ValidationResult
 //   - Lifetime (perpetual, time-independent): a corrupt state file is
 //     tolerated. Lifetime validity does not depend on time or on the
 //     high-water mark, so we start fresh rather than deny a legitimate user.
+//
+// IMPORTANT (#5): Lifetime licenses are, BY DESIGN, IMMUNE to anti-rollback.
+// Their authorization decision is time-independent, so a clock rolled backward
+// (or a wiped/corrupt state file) cannot cause a Lifetime license to be denied
+// here — anti-rollback simply does not apply to them. Do NOT rely on this path
+// to detect clock tampering for Lifetime licenses; only time-limited types
+// (Trial/Subscription) are protected by the high-water mark.
 func (m *Manager) checkAndPersistRollback(p *Payload, now time.Time) error {
 	prev, lerr := m.rollback.Load()
 	if lerr != nil {
@@ -184,6 +191,14 @@ func (m *Manager) LoadAndValidate(path string, ctx ValidationContext) (Validatio
 // Inspect verifies the signature and returns the decoded payload WITHOUT policy
 // validation (time/device/product). Intended for diagnostics/tooling only —
 // callers must not treat a successful Inspect as an authorization decision.
+//
+// Clock note (#9): if the trusted clock is unavailable, Inspect DEGRADES to the
+// local wall clock (time.Now) purely to obtain a timestamp for key-window
+// checks during signature verification. This degradation is acceptable ONLY
+// because Inspect is diagnostic and never grants authorization. Do NOT copy
+// this fallback into any authorization path — Validate must fail-closed
+// (CodeClockRollback) when trusted time is unavailable rather than trust the
+// local clock.
 func (m *Manager) Inspect(data []byte) (*Payload, error) {
 	now, err := m.clock.Now()
 	if err != nil {

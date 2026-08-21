@@ -139,36 +139,61 @@ func validate(p *Payload, now time.Time, keyID string, ctx ValidationContext) Va
 // empty, the maintenance gate is skipped entirely so old licenses are never
 // falsely rejected.
 //
+// Fail-closed semantics:
+//   - If the license declares any version constraint (MinVersion, MaxVersion,
+//     MaintenanceUntil, or CoveredMaxVersion) but the caller supplies no running
+//     version, the license is rejected (CodeVersionUnsupported): we cannot prove
+//     the running build is covered, so we refuse rather than pass silently.
+//   - If a running version is supplied but cannot be strictly parsed, it is
+//     rejected: ambiguous input is never treated as satisfying the constraint.
+//   - Constraint-side version strings (MinVersion, MaxVersion, CoveredMaxVersion)
+//     are issuer-controlled; if any engaged constraint fails to parse, the
+//     license is likewise rejected rather than compared approximately.
+//   - When the license declares no version constraint at all, this gate is a
+//     no-op and returns CodeOK regardless of the running version.
+//
 // Limitations of this offline approximation:
-//   - It requires a running version and (MaintenanceUntil) to engage; if the
-//     running version is absent the maintenance gate is skipped (fail-open for
-//     that gate only, signature/expiry/device checks still apply).
 //   - It cannot distinguish two versions released on different dates that share
 //     the same version string; the version ceiling is the sole covered bound.
 func checkVersion(p *Payload, version string, now time.Time, skew time.Duration) Code {
 	vc := p.VersionConstraint
-	if version != "" {
-		if vc.MinVersion != "" && compareVersions(version, vc.MinVersion) < 0 {
-			return CodeVersionUnsupported
-		}
-		if vc.MaxVersion != "" && compareVersions(version, vc.MaxVersion) > 0 {
+	hasConstraint := vc.MinVersion != "" || vc.MaxVersion != "" ||
+		vc.MaintenanceUntil != nil || vc.CoveredMaxVersion != ""
+	if !hasConstraint {
+		return CodeOK
+	}
+	// Fail-closed: a declared constraint requires a running version to evaluate.
+	if version == "" {
+		return CodeVersionUnsupported
+	}
+	if vc.MinVersion != "" {
+		cmp, ok := compareVersionsStrict(version, vc.MinVersion)
+		if !ok || cmp < 0 {
 			return CodeVersionUnsupported
 		}
 	}
-	// Maintenance gate: only engages with a running version, a maintenance
-	// deadline, and once that deadline has lapsed (accounting for skew).
-	if version != "" && vc.MaintenanceUntil != nil && now.Add(-skew).After(*vc.MaintenanceUntil) {
+	if vc.MaxVersion != "" {
+		cmp, ok := compareVersionsStrict(version, vc.MaxVersion)
+		if !ok || cmp > 0 {
+			return CodeVersionUnsupported
+		}
+	}
+	// Maintenance gate: only engages with a maintenance deadline once that
+	// deadline has lapsed (accounting for skew).
+	if vc.MaintenanceUntil != nil && now.Add(-skew).After(*vc.MaintenanceUntil) {
 		if vc.CoveredMaxVersion != "" {
 			// Explicit ceiling: builds newer than the covered maximum are not
 			// covered once maintenance has lapsed.
-			if compareVersions(version, vc.CoveredMaxVersion) > 0 {
+			cmp, ok := compareVersionsStrict(version, vc.CoveredMaxVersion)
+			if !ok || cmp > 0 {
 				return CodeVersionUnsupported
 			}
 		} else if vc.MinVersion != "" {
 			// Compatibility path for licenses issued before CoveredMaxVersion
 			// existed: use MinVersion as the maintained baseline. Builds newer
 			// than the baseline are uncovered after maintenance lapses.
-			if compareVersions(version, vc.MinVersion) > 0 {
+			cmp, ok := compareVersionsStrict(version, vc.MinVersion)
+			if !ok || cmp > 0 {
 				return CodeVersionUnsupported
 			}
 		}
