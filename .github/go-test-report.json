@@ -7,9 +7,9 @@
     "skipped": 0
   },
   "coverage": {
-    "covered_statements": 1477,
-    "total_statements": 1758,
-    "percentage": 84.02,
+    "covered_statements": 1470,
+    "total_statements": 1749,
+    "percentage": 84.05,
     "threshold": 80
   },
   "packages": [
@@ -32,7 +32,7 @@
       "status": "pass",
       "tests": 22,
       "failed": 0,
-      "coverage": 92.96
+      "coverage": 93.98
     },
     {
       "name": "pkg/license",
