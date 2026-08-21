@@ -149,7 +149,7 @@ brews:
     # repo instead of failing the whole release. The formula is still built
     # into dist/homebrew/, and the GitHub Release + Docker images are already
     # published by earlier steps. Set the secret to re-enable tap pushes.
-    skip_upload: '{{ if .Env.HOMEBREW_TAP_TOKEN }}false{{ else }}true{{ end }}'
+    skip_upload: '{{ if isEnvSet "HOMEBREW_TAP_TOKEN" }}false{{ else }}true{{ end }}'
     repository:
       owner: soulteary
       name: homebrew-tap
@@ -157,7 +157,7 @@ brews:
       # the HOMEBREW_TAP_TOKEN secret (the default GITHUB_TOKEN cannot push
       # to a different repository). Default to empty so the skip_upload guard
       # above triggers cleanly when the secret is absent.
-      token: '{{ .Env.HOMEBREW_TAP_TOKEN }}'
+      token: '{{ index .Env "HOMEBREW_TAP_TOKEN" }}'
     homepage: "https://github.com/soulteary/grantseal"
     description: "grantseal offline license issuer/verifier CLI (license-tool)"
     license: "Apache-2.0"
