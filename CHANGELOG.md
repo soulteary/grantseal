@@ -11,8 +11,73 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security & protocol hardening (quality hardening initiative)
+
+This release is a one-time, clean protocol upgrade. Read the **Migration** notes
+below before upgrading.
+
+- **Signing domain separation.** License signatures are now computed over a
+  domain-separated payload (`grantseal/license/v1\x00` prefix) and revocation
+  lists over `grantseal/revocation/v2\x00`. This binds a signature to its
+  intended context and prevents cross-protocol signature reuse.
+- **Revocation protocol v2 (replay-resistant).** Revocation lists carry
+  `list_id`, `sequence`, `issued_at`, and `expires_at`, verified against an
+  integrity-protected (HMAC) high-water-mark state so a client cannot be rolled
+  back to an older list. Legacy v1 lists are **rejected by default** and only
+  accepted via the explicit `AllowLegacyV1Revocation()` option.
+- **Strict JSON parsing.** Payload and list decoding reject trailing garbage,
+  duplicate keys, and non-canonical encodings (`CodeNonCanonicalPayload`).
+- **Fail-closed limits.** `RequireLimit` treats an undeclared limit key as a
+  denial (`CodeLimitRequired`) rather than an implicit allow; `CheckLimitStrict`
+  is the fail-closed counterpart of `CheckLimit`.
+- **SemVer 2.0 version comparison.** Version-constraint checks implement full
+  SemVer 2.0 precedence (including prerelease ordering) and **reject** malformed
+  versions instead of coercing/stripping them.
+- **KeyRing issuance-window semantics.** Signatures are verified first, then the
+  signed `Payload.IssuedAt` is checked against the key's `NotBefore`/`NotAfter`
+  window; `Revoked` remains an immediate kill switch. Lookup is split into
+  `LookupPublicKey(id)` + `CheckKeyPolicy(entry, issuedAt)`.
+- **Durable file writes.** `keygen` and license writes use `O_EXCL` (no-clobber)
+  and atomic temp-file + `fsync` + `rename` (with parent-dir fsync) so a crash
+  cannot leave a partially written or half-overwritten key/license.
+
+### Added
+
+- New stable error codes (appended, never repurposed): `CodeProductRequired`,
+  `CodeNonCanonicalPayload`, `CodeRevocationStale`, `CodeRevocationFromFuture`,
+  `CodeRevocationExpired`, `CodeRevocationRollback`,
+  `CodeRevocationStateIntegrityFailure`, `CodeLimitRequired`.
+- Fingerprint **v2**: per-platform primary identifier (Linux `machine-id`,
+  macOS `platform_uuid`, Windows `MachineGuid`) with placeholder filtering; v1
+  strict-all-components behavior is unchanged. `RequestCode` is tagged with the
+  version (`V1-`/`V2-`) and keyed fingerprints use an `hmac-sha256:` prefix.
+  `license-tool fingerprint` gains a `-v2` flag.
+- Repository governance: `.github/dependabot.yml` (weekly grouped Actions + Go
+  toolchain updates), issue templates + `PULL_REQUEST_TEMPLATE.md`, and a
+  `COMPATIBILITY.md` policy for the schema / error-code / CLI / Go API surfaces.
+- Supply-chain hardening in CI: all third-party Actions pinned to full commit
+  SHAs, per-job minimal `permissions`, `govulncheck`, a 4-target fuzz matrix
+  (plus a nightly longer campaign), a `goreleaser --snapshot` packaging check,
+  a release-time re-run of the full quality gate, and a release-archive
+  allowlist (`scripts/check-archive-allowlist.sh`). `cosign` signing / SBOM /
+  provenance are tracked as TODOs (they need keys/OIDC).
+- Single source of truth for quality metrics: `scripts/generate-quality-docs.sh`
+  regenerates the coverage blocks of `docs/*/quality.md` from
+  `.github/go-test-report.json`.
+
 ### Changed
 
+- Security documentation now matches enforced behavior: the absolute
+  "never panics" phrasing is replaced with "returns errors on every supported
+  entry point, continuously fuzz/race verified"; fingerprint docs state that raw
+  values are **not returned by the API** (rather than claiming the hash is
+  irreversible); revocation docs distinguish **signature authenticity** vs
+  **distribution freshness** vs **local anti-rollback**; and the CI artifact
+  scan is described as scanning the **final release archives** plus enforcing an
+  allowlist.
+- Coverage figures are no longer hardcoded to `77.5%`/commit `e5c6e93` in the
+  README/quality docs; they are published from `.github/go-test-report.json`
+  (currently 84.02% total, gate `>= 80%`).
 - CI coverage now uses the GTR (Go Test Report) Action
   (`soulteary/go-test-report-action`) instead of hand-rolled scripts. The
   `coverage` job runs tests once with the race detector over
@@ -80,9 +145,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (+ `doc-language-allowlist.txt`), `check-sensitive-files.sh`,
   `gen-coverage-badge.sh`.
 
-No public API, license file format, error code, or CLI behavior changed.
+The documentation/testing/CI groundwork above changed no public API, license
+file format, error code, or CLI behavior. The **protocol hardening** items at
+the top of this release do — see **Migration** below.
 
-## [0.1.0]
+### Migration
+
+The signing domain separation and revocation v2 are a **one-time, clean
+protocol upgrade** — they are not wire-compatible with pre-upgrade artifacts:
+
+- **Re-issue licenses and re-sign revocation lists** with the upgraded
+  `license-tool`. Signatures produced before the domain-separation change will
+  not verify against the new verifier, and vice versa.
+- **Revocation lists must be v2.** Re-generate them (they gain `list_id`,
+  `sequence`, `issued_at`, `expires_at`). If you must temporarily keep serving a
+  legacy v1 list, opt in explicitly with `AllowLegacyV1Revocation()`; this is a
+  stopgap, not a supported long-term mode.
+- **Verification now requires a ProductID by default.** The library returns
+  `LICENSE_PRODUCT_REQUIRED` (`CodeProductRequired`) when `ValidationContext`
+  carries no `ProductID`, unless you explicitly opt out with
+  `WithUnscopedProductValidation`; the CLI `verify` command now requires
+  `-product`. Scope every verification to the product it authorizes.
+- **Audit limit checks.** If you relied on `CheckLimit` returning "allowed" for
+  an *undeclared* limit key, switch security-relevant checks to `RequireLimit` /
+  `CheckLimitStrict`, which are fail-closed (`LICENSE_LIMIT_REQUIRED`).
+- **Version constraints must be valid SemVer 2.0.** Previously tolerated
+  malformed versions (e.g. two-part `1.2`, leading zeros) are now rejected;
+  normalize your `version_constraint` values.
+- **Keyed fingerprint prefix changed** from `sha256:` to `hmac-sha256:`; update
+  any stored comparisons. Fingerprint v1 output is unchanged — adopt v2 only
+  when you want the per-platform primary identifier.
 
 Initial public release of `grantseal`, an **offline software licensing** system
 written in Go 1.26 using **only the standard library**.

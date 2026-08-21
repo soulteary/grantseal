@@ -9,8 +9,9 @@ forgery and offline tampering**, not to make software uncrackable. It provides:
 
 - **Origin authentication and integrity** for licenses and revocation lists via
   Ed25519 signatures over a deterministic canonical payload.
-- A **fail-closed** client verifier that returns stable `LICENSE_*` codes and
-  never panics on malformed input.
+- A **fail-closed** client verifier that returns stable `LICENSE_*` codes on
+  every supported entry point instead of panicking on malformed input
+  (continuously exercised by the race detector and fuzz targets in CI).
 - Physical separation of private-key logic (`internal/issuer`) from client code
   (`pkg/license`), enforced by Go's `internal/` mechanism.
 
@@ -22,7 +23,7 @@ protection against a privileged (root/admin) local adversary.
 
 | Boundary | Trusted side | Untrusted side | Enforced by |
 | -------- | ------------ | -------------- | ----------- |
-| Private key material | Issuer machine (`internal/issuer` + CLI) | Everything shipped to customers | Go `internal/` (clients cannot import `internal/issuer`); CI scans release artifacts for key material |
+| Private key material | Issuer machine (`internal/issuer` + CLI) | Everything shipped to customers | Go `internal/` (clients cannot import `internal/issuer`); CI scans the final release archives for key material and enforces an archive allowlist |
 | Signature verification | Embedded public key(s) in the client `KeyRing` | The license file, revocation list, and their transport | `pkg/license` Ed25519 verification over canonical bytes |
 | Anti-rollback state | HMAC key derived from a built-in secret + device fingerprint | The on-disk state file | HMAC-SHA256 tag checked with `subtle.ConstantTimeCompare` |
 | Time source | Caller-supplied clock / `TrustedTimeProvider` | The local system clock | Rollback high-water-mark heuristic (naive rollback only) |
@@ -62,7 +63,9 @@ the signature verifies (see [architecture](docs/enUS/architecture.md#verificatio
 - License files use **atomic writes** (temp file + `rename`) and default to
   **not overwriting** existing files.
 - Validation results are **read-only**; the verifier is **fail-closed** and
-  **never panics** on malformed input.
+  returns a stable `LICENSE_*` error on every supported entry point instead of
+  panicking on malformed input — a property continuously exercised by the CI
+  race detector and fuzz targets rather than asserted as an absolute guarantee.
 - Logs are redacted: no private keys, no raw hardware identifiers, no full
   sensitive license bodies.
 
@@ -79,8 +82,10 @@ The isolation is a property you can verify, not a promise:
 - Golden test vectors embed only public keys, canonical payloads, and
   signatures — never a private key (see
   [architecture](docs/enUS/architecture.md#envelope-format)).
-- CI scans release artifacts for private-key material (PEM private-key headers,
-  `*-private.key` names) so a key cannot ship by accident.
+- CI scans the **final release archives** for private-key material (PEM
+  private-key headers, `*-private.key` names) and enforces an **archive
+  allowlist** (`scripts/check-archive-allowlist.sh`) so only the intended files
+  ship and a key cannot be included by accident.
 
 ## Key lifecycle
 

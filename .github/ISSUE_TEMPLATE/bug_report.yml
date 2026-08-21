@@ -1,0 +1,43 @@
+name: Bug report
+description: Report incorrect verification behavior, a crash, or a broken build.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Do **not** attach real private keys, license files, or rollback state.
+        Redact them or use freshly generated test material.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What did you expect, and what did you observe instead?
+      placeholder: e.g. LoadAndValidate returned CODE_X but I expected CODE_Y.
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: Minimal steps or a small code / CLI snippet.
+    validations:
+      required: true
+  - type: input
+    id: error-code
+    attributes:
+      label: Stable error code (if any)
+      description: The LICENSE_* code from license.CodeOf(err), if applicable.
+      placeholder: LICENSE_SIGNATURE_INVALID
+  - type: input
+    id: version
+    attributes:
+      label: grantseal version / commit
+    validations:
+      required: true
+  - type: input
+    id: go-os
+    attributes:
+      label: Go version and OS/arch
+      placeholder: go1.26.6 darwin/arm64
+    validations:
+      required: true

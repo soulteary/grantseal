@@ -1,0 +1,32 @@
+version: 2
+updates:
+  # Keep the pinned GitHub Actions SHAs fresh. Grouped so a single PR bumps the
+  # whole toolchain rather than opening one PR per action.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Asia/Shanghai
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "ci"
+    groups:
+      github-actions:
+        patterns:
+          - "*"
+
+  # The runtime deliberately has zero third-party modules. This entry keeps the
+  # Go toolchain / any CI-only build tooling declared in go.mod up to date and
+  # will surface a PR if a stray require block ever appears.
+  - package-ecosystem: gomod
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Asia/Shanghai
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "build"

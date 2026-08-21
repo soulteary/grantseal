@@ -57,8 +57,8 @@ examples/          客户端集成 + 批量签发配置
 
 回拨状态文件损坏时，按 `license_type` fail-closed：`trial`/`subscription` 直接
 拒绝（`LICENSE_STATE_INTEGRITY_FAILURE`），`lifetime`（与时间无关）则容忍并重置。
-任一步失败均 **fail-closed**，返回稳定的 `LICENSE_*` 错误码；非法输入返回 error，
-**绝不 panic**。
+任一步失败均 **fail-closed**，返回稳定的 `LICENSE_*` 错误码；非法输入对受支持入口
+返回 error 而非 panic（CI 持续以 fuzz/race 验证）。
 
 ## 签发配置
 
@@ -125,9 +125,10 @@ go run ./cmd/license-tool inspect -license customer.lic -pubkey ./_keys/k1-publi
 go run ./cmd/license-tool fingerprint -namespace acme-app -json
 go run ./cmd/license-tool fingerprint -namespace acme-app -request-code
 
-# 构建签名撤销列表
+# 构建签名撤销列表(v2:必须带 -sequence,并提供 -ttl 或 -expires-at)。
+# sequence 是单调递增的发布计数,客户端以其作为高水位以拒绝被重放的旧列表。
 go run ./cmd/license-tool revoke-list -key ./_keys/k1-private.key -key-id k1 \
-  -ids lic_abc,lic_def -out revoked.json
+  -ids lic_abc,lic_def -sequence 1 -ttl 8760h -out revoked.json
 
 # 打印 license-tool 版本
 go run ./cmd/license-tool version
@@ -164,9 +165,9 @@ docker run --rm \
   issue -config /work/examples/issue-config.json \
   -key /work/_keys/k1-private.key -out /work/customer.lic
 
-# 客户端验证只需公钥
+# 客户端验证只需公钥(必须带 -product,把校验限定到具体的 product_id)
 docker run --rm -v "$PWD:/work" soulteary/grantseal:latest \
-  verify -license /work/customer.lic -pubkey /work/_keys/k1-public.key
+  verify -license /work/customer.lic -pubkey /work/_keys/k1-public.key -product acme-app
 ```
 
 ## 客户端集成（库）
@@ -193,6 +194,11 @@ if err := res.CheckLimit("max_seats", seatsInUse); err != nil {
     // license.CodeOf(err) == license.CodeLimitExceeded（"LICENSE_LIMIT_EXCEEDED"）
     // 注意：license 未声明的 key 视为“无限制”，返回 nil。
 }
+// fail-closed 替代方案：RequireLimit 对未声明的 key 返回 CodeLimitRequired，
+// 对负数 current 返回 CodeInvalidLimits。
+if err := res.RequireLimit("max_seats", seatsInUse); err != nil {
+    // license.CodeOf(err) == CodeLimitExceeded / CodeLimitRequired / CodeInvalidLimits
+}
 _ = res.GetEdition()        // Edition
 _ = res.GetExpiration()     // *time.Time（lifetime 为 nil）
 _ = res.GetRemainingDays()  // lifetime 返回 -1（license.PerpetualRemainingDays）
@@ -207,6 +213,7 @@ _ = res.DeviceMatched()     // 设备绑定是否满足
 
 - `RequireFeature(name) error`：功能未授予返回 `CodeFeatureDenied`（`LICENSE_FEATURE_DENIED`）。
 - `CheckLimit(key, current) error`：超限返回 `CodeLimitExceeded`（`LICENSE_LIMIT_EXCEEDED`）；未声明的 key 视为**无限制**。
+- `RequireLimit(key, current) error`：`CheckLimit` 的 fail-closed 版本——未声明的 key 返回 `CodeLimitRequired`（`LICENSE_LIMIT_REQUIRED`），`current` 为负返回 `CodeInvalidLimits`，超限返回 `CodeLimitExceeded`。`CheckLimitStrict(key, current)` 语义相同但不含空 key / 负 `current` 保护。
 - `GetLimit`、`GetEdition`、`GetExpiration`、`GetRemainingDays`（永久返回 `-1`）、`RemainingTime`、`KeyID`、`DeviceMatched`。
 
 `Manager` 会缓存最近一次成功的结果：用 `Manager.CachedResult()` 免验签查询，用 `Manager.InvalidateCache()` 清除；`Manager.GetDeviceRequestCode(ns)` 委托 `pkg/fingerprint` 生成申请码。

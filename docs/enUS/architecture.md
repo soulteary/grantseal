@@ -25,7 +25,7 @@ client binary.
                                      │                   |                                  │
                                      ▼                   |                                  ▼
                               customer.lic  ───────ships over any channel──────▶  verify + policy-validate
-                              revoked.json                                        (fail-closed, never panics)
+                              revoked.json                                        (fail-closed, stable errors)
                                                         |
   Trust boundary: the private key never crosses this line. Only signed artifacts
   (licenses, revocation lists) and public keys do.
@@ -34,8 +34,8 @@ client binary.
 Key properties:
 
 - **Private-key isolation.** Clients import only `pkg/license`; `internal/issuer`
-  is unimportable outside the module's issuer tree. CI scans release artifacts
-  for key material.
+  is unimportable outside the module's issuer tree. CI scans the final release
+  archives for key material and enforces an archive allowlist.
 - **Untrusted input.** The client treats the license file, the revocation list,
   the local rollback state file, and the system clock as untrusted. No untrusted
   data may mutate trusted state before its signature is proven authentic (see
@@ -116,26 +116,48 @@ If the anti-rollback state file is corrupt, the policy is fail-closed by
 `license_type`: `trial`/`subscription` are rejected
 (`LICENSE_STATE_INTEGRITY_FAILURE`), while a time-independent `lifetime` license
 is tolerated and the state is reset. Every failure path returns a stable
-`LICENSE_*` code and the verifier never panics on malformed input.
+`LICENSE_*` code; malformed input returns an error on every supported entry
+point instead of panicking (continuously fuzz/race verified in CI).
 
 ## Revocation & offline freshness
 
 - A revocation list is authenticated exactly like a license: canonical bytes,
   Ed25519 signature, verified client-side against the same `KeyRing`. Its
   `key_id` inside the signed body must match the envelope `key_id`, the schema
-  must be `1`, and the entry count is capped at `MaxRevokedIDs`.
-- **Offline freshness limit.** A client enforces only the revocation list it
-  currently holds. Without a fresh, signed list it cannot learn about newer
-  revocations. The `issued_at` timestamp lets an operator reason about staleness
-  but is not, today, an automatic freshness-enforcement mechanism.
+  must be `2` (`RevocationSchemaVersion`), and the entry count is capped at
+  `MaxRevokedIDs`.
+- The v2 list carries `list_id`, a monotonically increasing `sequence`,
+  `issued_at`, and `expires_at` inside the signed body. Three distinct
+  properties are enforced independently:
+  1. **Signature authenticity** — the list is really from the issuer (Ed25519
+     over canonical bytes).
+  2. **Distribution freshness** — `issued_at` must not be in the future
+     (`LICENSE_REVOCATION_FROM_FUTURE`) and the list must not be past
+     `expires_at` / older than any configured `MaxAge`
+     (`LICENSE_REVOCATION_EXPIRED`). This is governed by
+     `RevocationPolicy.RequireFresh`, which defaults to **true**;
+     `RevocationPolicy.WithoutFreshness()` is the explicit, deliberate opt-out
+     for replaying an archived list.
+  3. **Local anti-replay** — the client persists the highest accepted `sequence`
+     per `list_id` as a high-water mark. A list whose sequence is lower than the
+     last accepted one is rejected (`LICENSE_REVOCATION_STALE`); reusing a
+     sequence with different content is rejected as a rollback
+     (`LICENSE_REVOCATION_ROLLBACK`). If the local state file is tampered with,
+     the check fails closed (`LICENSE_REVOCATION_STATE_INTEGRITY_FAILURE`).
+- **Legacy v1 lists are rejected by default.** A v1 list (no
+  sequence/expiry, no replay resistance) is only accepted when the caller
+  explicitly opts in via `RevocationPolicy.AllowLegacyV1Revocation()` (or the
+  `-v1` flag when *building* a list). This keeps the default fail-closed.
+- **Offline freshness limit.** A client still enforces only the revocation list
+  it currently holds; without a newer signed list it cannot learn about newer
+  revocations. The freshness window bounds how stale a held list may be, but
+  distribution of newer lists is out of band.
 
 ### Roadmap fields / mechanisms (not yet implemented)
 
 The following are **not** implemented today and are called out so nobody depends
 on them:
 
-- **Revocation-list freshness enforcement** (e.g. a maximum-age / "must be newer
-  than" policy). *Roadmap.*
 - **Online revocation / OTA distribution** of signed revocation lists and
   public-key updates. *Roadmap.*
 - **Network-backed `TrustedTimeProvider`** for authoritative time instead of the
@@ -154,7 +176,9 @@ on them:
    prefix with the product namespace and a NUL separator, and join
    `category=value` lines with `\n`.
 4. **Hash**: SHA-256 by default, or HMAC-SHA256 when a key is supplied
-   (`ComputeHMAC`). Output is prefixed `sha256:`.
+   (`ComputeHMAC`). The plain and v1 keyed outputs are prefixed `sha256:`; the
+   v2 keyed output (`ComputeHMACV2`) is prefixed `hmac-sha256:` so the scheme is
+   self-describing and the two cannot be confused.
 
 Properties and caveats:
 

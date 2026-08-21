@@ -71,7 +71,8 @@ If the anti-rollback state file is corrupt, the policy is fail-closed by
 `license_type`: `trial`/`subscription` are rejected
 (`LICENSE_STATE_INTEGRITY_FAILURE`), while `lifetime` (time-independent) is
 tolerated and reset. Any failure is **fail-closed** with a stable `LICENSE_*`
-code; malformed input returns an error and **never panics**.
+code; malformed input returns an error on every supported entry point instead
+of panicking (continuously fuzz/race verified in CI).
 
 ## Issue config
 
@@ -143,9 +144,11 @@ go run ./cmd/license-tool inspect -license customer.lic -pubkey ./_keys/k1-publi
 go run ./cmd/license-tool fingerprint -namespace acme-app -json
 go run ./cmd/license-tool fingerprint -namespace acme-app -request-code
 
-# Build a signed revocation list
+# Build a signed revocation list (v2: -sequence is required, plus -ttl or
+# -expires-at). The sequence is a monotonically increasing publication counter
+# the client tracks as a high-water mark to reject replayed older lists.
 go run ./cmd/license-tool revoke-list -key ./_keys/k1-private.key -key-id k1 \
-  -ids lic_abc,lic_def -out revoked.json
+  -ids lic_abc,lic_def -sequence 1 -ttl 8760h -out revoked.json
 
 # Print the license-tool version
 go run ./cmd/license-tool version
@@ -185,9 +188,10 @@ docker run --rm \
   issue -config /work/examples/issue-config.json \
   -key /work/_keys/k1-private.key -out /work/customer.lic
 
-# Client-side verification only needs the public key
+# Client-side verification only needs the public key (-product is required to
+# scope validation to a specific product_id)
 docker run --rm -v "$PWD:/work" soulteary/grantseal:latest \
-  verify -license /work/customer.lic -pubkey /work/_keys/k1-public.key
+  verify -license /work/customer.lic -pubkey /work/_keys/k1-public.key -product acme-app
 ```
 
 ## Client integration (library)
@@ -214,6 +218,11 @@ if err := res.CheckLimit("max_seats", seatsInUse); err != nil {
     // license.CodeOf(err) == license.CodeLimitExceeded ("LICENSE_LIMIT_EXCEEDED")
     // Note: an undeclared limit key is treated as UNLIMITED (returns nil).
 }
+// Fail-closed alternative: RequireLimit rejects an undeclared key with
+// CodeLimitRequired and a negative current with CodeInvalidLimits.
+if err := res.RequireLimit("max_seats", seatsInUse); err != nil {
+    // license.CodeOf(err) == CodeLimitExceeded / CodeLimitRequired / CodeInvalidLimits
+}
 _ = res.GetEdition()        // Edition
 _ = res.GetExpiration()     // *time.Time (nil for lifetime)
 _ = res.GetRemainingDays()  // -1 (license.PerpetualRemainingDays) for lifetime
@@ -232,6 +241,11 @@ fields:
 - `CheckLimit(key, current) error` — returns `CodeLimitExceeded`
   (`LICENSE_LIMIT_EXCEEDED`) when exceeded. A key that the license does not
   declare is treated as **unlimited**.
+- `RequireLimit(key, current) error` — fail-closed counterpart of `CheckLimit`:
+  an undeclared key returns `CodeLimitRequired` (`LICENSE_LIMIT_REQUIRED`), a
+  negative `current` returns `CodeInvalidLimits`, and over-limit returns
+  `CodeLimitExceeded`. `CheckLimitStrict(key, current)` is the same but without
+  the empty-key / negative-`current` guards.
 - `GetLimit`, `GetEdition`, `GetExpiration`, `GetRemainingDays` (returns `-1`
   for perpetual), `RemainingTime`, `KeyID`, `DeviceMatched`.
 
