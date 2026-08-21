@@ -1,6 +1,6 @@
 # grantseal
 
-[![CI](https://github.com/soulteary/grantseal/actions/workflows/ci.yml/badge.svg)](https://github.com/soulteary/grantseal/actions/workflows/ci.yml) [![Release](https://github.com/soulteary/grantseal/actions/workflows/release.yml/badge.svg)](https://github.com/soulteary/grantseal/actions/workflows/release.yml) [![Go Report Card](./.github/goreportcard.svg)](./.github/goreportcard-report.md) [![Coverage](./.github/coverage.svg)](https://github.com/soulteary/grantseal/actions/workflows/ci.yml) [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](./LICENSE) [![Go Version](https://img.shields.io/badge/go-1.26-00ADD8.svg)](https://go.dev/)
+[![CI](https://github.com/soulteary/grantseal/actions/workflows/ci.yml/badge.svg)](https://github.com/soulteary/grantseal/actions/workflows/ci.yml) [![Release](https://github.com/soulteary/grantseal/actions/workflows/release.yml/badge.svg)](https://github.com/soulteary/grantseal/actions/workflows/release.yml) [![Go Report Card](./.github/goreportcard.svg)](./.github/goreportcard-report.md) [![Coverage](./.github/coverage.svg)](./.github/go-test-report.md) [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](./LICENSE) [![Go Version](https://img.shields.io/badge/go-1.26-00ADD8.svg)](https://go.dev/)
 
 [English](#english) | [简体中文](#简体中文) — full docs: [English](./docs/enUS/README.md) | [中文文档](./docs/zhCN/README.md) — [Changelog](./CHANGELOG.md)
 

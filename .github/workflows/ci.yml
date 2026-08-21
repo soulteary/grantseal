@@ -56,34 +56,32 @@ jobs:
   coverage:
     name: coverage gate
     runs-on: ubuntu-latest
-    env:
-      # Minimum total coverage gate. Set to the measured total (77.5% on commit
-      # e5c6e93), rounded DOWN to 77 so the producing commit cannot fail its own
-      # gate. Raise deliberately as coverage improves.
-      COVERAGE_MIN: "77"
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-go@v5
+      # GTR runs `go test` once with the race detector and derives both test
+      # stats and coverage from that single run, then enforces the gates.
+      # Read-only on PRs: no write-back, no secrets. Total gate 77 matches the
+      # measured 77.53%; the per-package gate 70 clears cmd/license-tool (70.68%)
+      # while examples/ is excluded because it ships without tests by design.
+      - name: go test + coverage gate (GTR)
+        uses: soulteary/go-test-report-action@v1
         with:
-          go-version: "1.26"
-          check-latest: true
+          race: "true"
+          cover_mode: atomic
+          exclude: |
+            /examples/
+          coverage_threshold: "77"
+          package_threshold: "70"
+          commit: "false"
 
-      - name: go test (coverage profile)
-        run: go test ./... -covermode=atomic -coverprofile=coverage.out
-
-      - name: coverage summary
-        run: go tool cover -func=coverage.out
-
-      - name: upload coverage profile
+      - name: upload raw test results
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: coverage-profile
-          path: coverage.out
+          name: go-test-report-${{ github.run_id }}
+          path: .github/test-results/
           if-no-files-found: error
-
-      - name: enforce coverage gate
-        run: bash scripts/check-coverage.sh "$COVERAGE_MIN" coverage.out
 
   doc-checks:
     name: docs & sensitive files
@@ -136,10 +134,10 @@ jobs:
       - name: go test -fuzz (30s)
         run: go test ./pkg/license -run=^$ -fuzz=FuzzParseEnvelope -fuzztime=30s
 
-  coverage-badge:
-    name: coverage badge (default branch/tag only)
-    # Only regenerate and commit the badge on pushes to the default branch or a
-    # tag; pull requests never get write access. Mirrors goreportcard.yml.
+  coverage-report:
+    name: coverage report (default branch/tag only)
+    # Only regenerate and commit the stable report/badge/JSON on pushes to the
+    # default branch or a tag; pull requests never get write access.
     if: >-
       github.event_name == 'push' &&
       (github.ref == 'refs/heads/main' ||
@@ -149,38 +147,23 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
-    # Prevent overlapping runs from committing/overwriting the badge concurrently.
+    # Prevent overlapping runs from committing/overwriting the report concurrently.
     concurrency:
-      group: coverage-badge-${{ github.ref }}
+      group: coverage-report-${{ github.ref }}
       cancel-in-progress: false
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-go@v5
+      # Regenerate .github/go-test-report.md, .github/coverage.svg, and
+      # .github/go-test-report.json and commit them only when they change.
+      - name: go test report + write-back (GTR)
+        uses: soulteary/go-test-report-action@v1
         with:
-          go-version: "1.26"
-          check-latest: true
-
-      - name: measure total coverage
-        id: cov
-        run: |
-          go test ./... -covermode=atomic -coverprofile=coverage.out
-          total="$(go tool cover -func=coverage.out | awk '/^total:/ {gsub(/%/,"",$NF); print $NF}')"
-          echo "total=$total" >>"$GITHUB_OUTPUT"
-
-      - name: generate coverage SVG
-        env:
-          TOTAL: ${{ steps.cov.outputs.total }}
-        run: bash scripts/gen-coverage-badge.sh "$TOTAL" .github/coverage.svg
-
-      - name: commit badge if changed
-        run: |
-          if git diff --quiet -- .github/coverage.svg; then
-            echo "coverage badge unchanged"
-            exit 0
-          fi
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add .github/coverage.svg
-          git commit -m "ci: update coverage badge [skip ci]"
-          git push
+          race: "true"
+          cover_mode: atomic
+          exclude: |
+            /examples/
+          coverage_threshold: "77"
+          package_threshold: "70"
+          commit: "true"
+          commit_message: "ci: update Go test report [skip ci]"
