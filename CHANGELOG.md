@@ -15,18 +15,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - CI coverage now uses the GTR (Go Test Report) Action
   (`soulteary/go-test-report-action`) instead of hand-rolled scripts. The
-  `coverage` job runs tests once with the race detector and enforces a total
-  gate of 77% plus a per-package gate of 70% (with `examples/` excluded); the
-  default-branch `coverage-report` job writes back `.github/coverage.svg`,
-  `.github/go-test-report.md`, and `.github/go-test-report.json`. The removed
-  helper scripts `scripts/check-coverage.sh` and `scripts/gen-coverage-badge.sh`
-  are superseded by this Action.
+  `coverage` job runs tests once with the race detector over
+  `./cmd/... ./internal/... ./pkg/...` (the tests-free `examples/` demo is left
+  out of the package set) and enforces a total gate of 80% plus a per-package
+  gate of 70%; the default-branch `coverage-report` job writes back
+  `.github/coverage.svg`, `.github/go-test-report.md`, and
+  `.github/go-test-report.json`. The removed helper scripts
+  `scripts/check-coverage.sh` and `scripts/gen-coverage-badge.sh` are superseded
+  by this Action.
 - CI 覆盖率改用 GTR (Go Test Report) Action
-  (`soulteary/go-test-report-action`) 取代手写脚本:`coverage` 作业带竞态检测
-  跑一次测试,执行总覆盖率 77% 与单包 70% 门禁(排除 `examples/`);默认分支的
-  `coverage-report` 作业写回 `.github/coverage.svg`、`.github/go-test-report.md`
-  与 `.github/go-test-report.json`。已删除的辅助脚本
-  `scripts/check-coverage.sh` 与 `scripts/gen-coverage-badge.sh` 由该 Action 取代。
+  (`soulteary/go-test-report-action`) 取代手写脚本:`coverage` 作业带竞态检测在
+  `./cmd/... ./internal/... ./pkg/...` 上跑一次测试(不含无测试的 `examples/`
+  演示),执行总覆盖率 80% 与单包 70% 门禁;默认分支的 `coverage-report` 作业写回
+  `.github/coverage.svg`、`.github/go-test-report.md` 与
+  `.github/go-test-report.json`。已删除的辅助脚本 `scripts/check-coverage.sh`
+  与 `scripts/gen-coverage-badge.sh` 由该 Action 取代。
 - Sensitive-file scan (`scripts/check-sensitive-files.sh`) now performs a
   git-tracked audit by default: it enumerates only tracked files
   (`git ls-files -z`) and fails if any private-key filename or PEM private-key

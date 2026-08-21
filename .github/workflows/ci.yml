@@ -61,17 +61,16 @@ jobs:
 
       # GTR runs `go test` once with the race detector and derives both test
       # stats and coverage from that single run, then enforces the gates.
-      # Read-only on PRs: no write-back, no secrets. Total gate 77 matches the
-      # measured 77.53%; the per-package gate 70 clears cmd/license-tool (70.68%)
-      # while examples/ is excluded because it ships without tests by design.
+      # Read-only on PRs: no write-back, no secrets. The package list excludes
+      # examples/ (a tests-free demo binary); total gate 80 matches the measured
+      # 80.51%, and the per-package gate 70 clears cmd/license-tool (70.68%).
       - name: go test + coverage gate (GTR)
         uses: soulteary/go-test-report-action@v1
         with:
+          packages: "./cmd/... ./internal/... ./pkg/..."
           race: "true"
           cover_mode: atomic
-          exclude: |
-            /examples/
-          coverage_threshold: "77"
+          coverage_threshold: "80"
           package_threshold: "70"
           commit: "false"
 
@@ -159,11 +158,10 @@ jobs:
       - name: go test report + write-back (GTR)
         uses: soulteary/go-test-report-action@v1
         with:
+          packages: "./cmd/... ./internal/... ./pkg/..."
           race: "true"
           cover_mode: atomic
-          exclude: |
-            /examples/
-          coverage_threshold: "77"
+          coverage_threshold: "80"
           package_threshold: "70"
           commit: "true"
           commit_message: "ci: update Go test report [skip ci]"
