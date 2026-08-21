@@ -2,11 +2,21 @@ name: Go Report Card
 
 on:
   push:
-    branches: [main, master]
+    tags:
+      - "v*"
   workflow_dispatch:
+
+# Only trigger on version tag pushes and manual runs. Committing the generated
+# badge back must never re-trigger this workflow, so branch push events are
+# intentionally omitted (tag pushes are not produced by the badge commit).
 
 permissions:
   contents: write
+
+# Prevent overlapping runs from committing/overwriting the badge concurrently.
+concurrency:
+  group: goreportcard-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   report-card:
