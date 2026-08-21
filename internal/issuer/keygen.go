@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 )
 
 // KeyPair holds a freshly generated Ed25519 key pair plus its key_id.
@@ -96,7 +97,10 @@ func LoadPrivateKey(path string) (ed25519.PrivateKey, error) {
 	if err != nil {
 		return nil, fmt.Errorf("issuer: stat private key: %w", err)
 	}
-	if fi.Mode().Perm()&0o077 != 0 {
+	// Unix permission bits are not meaningfully enforced on Windows, where files
+	// always report a mode like 0666/0444. Only apply the strict-mode check on
+	// platforms whose file system honours Unix permissions.
+	if runtime.GOOS != "windows" && fi.Mode().Perm()&0o077 != 0 {
 		return nil, fmt.Errorf("issuer: private key %q has overly permissive mode %o (want 0600)", path, fi.Mode().Perm())
 	}
 	data, err := os.ReadFile(path)

@@ -3,6 +3,7 @@ package issuer_test
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/soulteary/grantseal/internal/issuer"
@@ -58,11 +59,12 @@ func TestWriteKeyFilesPermissionsAndNoClobber(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if fi.Mode().Perm() != 0o600 {
-		t.Fatalf("private key mode = %o, want 0600", fi.Mode().Perm())
-	}
 	if _, err := os.Stat(pubPath); err != nil {
 		t.Fatalf("public key missing: %v", err)
+	}
+	// Windows does not honour Unix permission bits; files always report ~0666.
+	if runtime.GOOS != "windows" && fi.Mode().Perm() != 0o600 {
+		t.Fatalf("private key mode = %o, want 0600", fi.Mode().Perm())
 	}
 	// Second write without force must fail (no clobber).
 	if _, _, err := kp.WriteKeyFiles(dir, false); err == nil {
@@ -72,6 +74,9 @@ func TestWriteKeyFilesPermissionsAndNoClobber(t *testing.T) {
 
 // LoadPrivateKey rejects world-readable key files.
 func TestLoadPrivateKeyRejectsLoosePerms(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Unix permission bits are not enforced on Windows")
+	}
 	dir := t.TempDir()
 	kp, _ := issuer.GenerateKeyPair("k1")
 	privPath, _, err := kp.WriteKeyFiles(dir, false)
