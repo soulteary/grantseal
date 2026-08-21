@@ -18,6 +18,7 @@ func cmdVerify(args []string) error {
 	version := fs.String("version", "", "running product version (optional)")
 	device := fs.String("device", "", "device fingerprint (optional)")
 	revPath := fs.String("revocation", "", "path to a signed revocation list (optional)")
+	clockSkew := fs.Duration("clock-skew", 0, "tolerated clock skew (e.g. 2s, 5m); 0 uses the default/env value")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -50,6 +51,9 @@ func cmdVerify(args []string) error {
 	}
 
 	var opts []license.Option
+	if *clockSkew > 0 {
+		opts = append(opts, license.WithClockSkew(*clockSkew))
+	}
 	mgr := license.NewManager(ring, opts...)
 
 	ctx := license.ValidationContext{

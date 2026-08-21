@@ -1,0 +1,19 @@
+{
+  "key_id": "k1",
+  "license_id": "lic_demo_device_single",
+  "serial_number": "SN-DEVICE-0007",
+  "product_id": "acme-app",
+  "customer_id": "cust_demo_0007",
+  "customer_name": "ACME Corp (device-single)",
+  "edition": "professional",
+  "license_type": "subscription",
+  "expires_at": "2099-01-01T00:00:00Z",
+  "grace_period_days": 0,
+  "device_binding": {
+    "mode": "single",
+    "device_ids": ["sha256:demo-device-fingerprint-0007"]
+  },
+  "metadata": {
+    "scenario": "device-single"
+  }
+}

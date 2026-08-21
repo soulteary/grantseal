@@ -1,0 +1,18 @@
+{
+  "key_id": "k1",
+  "license_id": "lic_demo_expired",
+  "serial_number": "SN-EXPIRED-0003",
+  "product_id": "acme-app",
+  "customer_id": "cust_demo_0003",
+  "customer_name": "ACME Corp (expired)",
+  "edition": "basic",
+  "license_type": "subscription",
+  "expires_at": "__EXPIRES_AT__",
+  "grace_period_days": 0,
+  "device_binding": {
+    "mode": "none"
+  },
+  "metadata": {
+    "scenario": "expired"
+  }
+}

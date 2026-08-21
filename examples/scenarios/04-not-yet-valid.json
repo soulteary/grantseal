@@ -1,0 +1,19 @@
+{
+  "key_id": "k1",
+  "license_id": "lic_demo_not_yet_valid",
+  "serial_number": "SN-NOTYET-0004",
+  "product_id": "acme-app",
+  "customer_id": "cust_demo_0004",
+  "customer_name": "ACME Corp (not-yet-valid)",
+  "edition": "enterprise",
+  "license_type": "subscription",
+  "not_before": "2099-01-01T00:00:00Z",
+  "expires_at": "2100-01-01T00:00:00Z",
+  "grace_period_days": 0,
+  "device_binding": {
+    "mode": "none"
+  },
+  "metadata": {
+    "scenario": "not-yet-valid"
+  }
+}

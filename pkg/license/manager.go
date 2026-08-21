@@ -42,17 +42,35 @@ func WithRevocation(r RevocationProvider) Option { return func(m *Manager) { m.r
 // WithClockSkew overrides the tolerated clock skew (default DefaultClockSkew).
 func WithClockSkew(d time.Duration) Option { return func(m *Manager) { m.skew = d } }
 
+// clockSkewEnvVar lets operators tune the tolerated clock skew without code
+// changes (e.g. shorter windows for reproducible demos/tests). An explicit
+// WithClockSkew option still takes precedence over the environment value.
+const clockSkewEnvVar = "GRANTSEAL_CLOCK_SKEW"
+
 // NewManager builds a Manager verifying against `ring`.
 func NewManager(ring *KeyRing, opts ...Option) *Manager {
 	m := &Manager{
 		verifier: NewVerifier(ring),
 		clock:    SystemClock{},
-		skew:     DefaultClockSkew,
+		skew:     clockSkewDefault(),
 	}
 	for _, o := range opts {
 		o(m)
 	}
 	return m
+}
+
+// clockSkewDefault returns the baseline clock skew, honoring GRANTSEAL_CLOCK_SKEW
+// when it parses to a positive duration; otherwise it falls back to
+// DefaultClockSkew. Invalid or non-positive values are ignored (fail-safe to
+// the stricter default).
+func clockSkewDefault() time.Duration {
+	if v := os.Getenv(clockSkewEnvVar); v != "" {
+		if d, err := time.ParseDuration(v); err == nil && d > 0 {
+			return d
+		}
+	}
+	return DefaultClockSkew
 }
 
 // Validate cryptographically verifies and policy-validates raw envelope bytes.
