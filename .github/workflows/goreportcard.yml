@@ -22,7 +22,13 @@ jobs:
   report-card:
     runs-on: ubuntu-latest
     steps:
+      # This workflow is triggered by tag pushes (v*), so a default checkout
+      # lands on a detached HEAD (the tag's commit) and the badge commit cannot
+      # be pushed ("You are not currently on a branch"). Check out the default
+      # branch by name so HEAD tracks a branch the badge can be committed back to.
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.repository.default_branch }}
 
       - id: grc
         uses: soulteary/goreportcard-action@v1
