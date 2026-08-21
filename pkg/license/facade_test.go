@@ -27,7 +27,7 @@ func TestTrialRequiresExpiry(t *testing.T) {
 		t.Fatal(err)
 	}
 	data, _ := env.MarshalJSONIndent()
-	mgr := license.NewManager(ringWith(t, "k1", pub))
+	mgr := newTestManager(ringWith(t, "k1", pub))
 	_, verr := mgr.Validate(data, license.ValidationContext{})
 	if license.CodeOf(verr) != license.CodeMalformed {
 		t.Fatalf("expected LICENSE_MALFORMED for trial without expiry, got %s", license.CodeOf(verr))
@@ -51,7 +51,7 @@ func TestSubscriptionRequiresExpiry(t *testing.T) {
 		t.Fatal(err)
 	}
 	data, _ := env.MarshalJSONIndent()
-	mgr := license.NewManager(ringWith(t, "k1", pub))
+	mgr := newTestManager(ringWith(t, "k1", pub))
 	_, verr := mgr.Validate(data, license.ValidationContext{})
 	if license.CodeOf(verr) != license.CodeMalformed {
 		t.Fatalf("expected LICENSE_MALFORMED for subscription without expiry, got %s", license.CodeOf(verr))
@@ -77,7 +77,7 @@ func TestLifetimeRejectsExpiry(t *testing.T) {
 		t.Fatal(err)
 	}
 	data, _ := env.MarshalJSONIndent()
-	mgr := license.NewManager(ringWith(t, "k1", pub))
+	mgr := newTestManager(ringWith(t, "k1", pub))
 	_, verr := mgr.Validate(data, license.ValidationContext{})
 	if license.CodeOf(verr) != license.CodeMalformed {
 		t.Fatalf("expected LICENSE_MALFORMED for lifetime with expiry, got %s", license.CodeOf(verr))
@@ -95,7 +95,7 @@ func TestLifetimeStillChecksDevice(t *testing.T) {
 	req.ExpiresAt = nil
 	req.DeviceBinding = license.DeviceBinding{Mode: license.DeviceModeSingle, DeviceIDs: []string{"sha256:abc"}}
 	data := issueBytes(t, s, req)
-	mgr := license.NewManager(ringWith(t, "k1", pub))
+	mgr := newTestManager(ringWith(t, "k1", pub))
 
 	// Wrong device -> still rejected.
 	if _, err := mgr.Validate(data, license.ValidationContext{DeviceFingerprint: "sha256:zzz"}); license.CodeOf(err) != license.CodeDeviceMismatch {
@@ -159,7 +159,7 @@ func TestRequireFeatureAndCheckLimit(t *testing.T) {
 	req.Edition = license.EditionProfessional // grants api
 	req.Limits = map[string]int64{"max_seats": 10}
 	data := issueBytes(t, s, req)
-	mgr := license.NewManager(ringWith(t, "k1", pub))
+	mgr := newTestManager(ringWith(t, "k1", pub))
 	res, err := mgr.Validate(data, license.ValidationContext{})
 	if err != nil {
 		t.Fatal(err)
@@ -197,7 +197,7 @@ func TestRemainingAccessors(t *testing.T) {
 	req := baseRequest()
 	req.ExpiresAt = ptr(now.Add(10 * 24 * time.Hour))
 	data := issueBytes(t, s, req)
-	mgr := license.NewManager(ringWith(t, "k1", pub))
+	mgr := newTestManager(ringWith(t, "k1", pub))
 	res, err := mgr.Validate(data, license.ValidationContext{})
 	if err != nil {
 		t.Fatal(err)
@@ -223,7 +223,7 @@ func TestRemainingAccessors(t *testing.T) {
 func TestManagerCaching(t *testing.T) {
 	s, pub := testKeyPair(t, "k1")
 	data := issueBytes(t, s, baseRequest())
-	mgr := license.NewManager(ringWith(t, "k1", pub))
+	mgr := newTestManager(ringWith(t, "k1", pub))
 
 	if _, ok := mgr.CachedResult(); ok {
 		t.Fatal("no cache should exist before validation")
@@ -255,7 +255,7 @@ func TestGarbageDoesNotPolluteRollbackState(t *testing.T) {
 
 	s, pub := testKeyPair(t, "k1")
 	_ = s
-	mgr := license.NewManager(ringWith(t, "k1", pub), license.WithRollbackStore(store))
+	mgr := newTestManager(ringWith(t, "k1", pub), license.WithRollbackStore(store))
 
 	_, err := mgr.Validate([]byte("not a license at all"), license.ValidationContext{})
 	if err == nil {
@@ -292,7 +292,7 @@ func TestCorruptStateFailClosedByType(t *testing.T) {
 		writeCorruptState(t, statePath, key)
 		s, pub := testKeyPair(t, "k1")
 		data := issueBytes(t, s, baseRequest()) // subscription
-		mgr := license.NewManager(ringWith(t, "k1", pub), license.WithRollbackStore(mustStore(t, statePath, key)))
+		mgr := newTestManager(ringWith(t, "k1", pub), license.WithRollbackStore(mustStore(t, statePath, key)))
 		_, err := mgr.Validate(data, license.ValidationContext{})
 		if license.CodeOf(err) != license.CodeStateIntegrityFailure {
 			t.Fatalf("subscription with corrupt state should fail closed, got %s", license.CodeOf(err))
@@ -311,7 +311,7 @@ func TestCorruptStateFailClosedByType(t *testing.T) {
 		req.Edition = license.EditionEnterprise
 		req.ExpiresAt = nil
 		data := issueBytes(t, s, req)
-		mgr := license.NewManager(ringWith(t, "k1", pub), license.WithRollbackStore(mustStore(t, statePath, key)))
+		mgr := newTestManager(ringWith(t, "k1", pub), license.WithRollbackStore(mustStore(t, statePath, key)))
 		res, err := mgr.Validate(data, license.ValidationContext{})
 		if err != nil || !res.Valid() {
 			t.Fatalf("lifetime with corrupt state should tolerate and validate: %v", err)
@@ -335,7 +335,7 @@ func TestMaintenanceWindow(t *testing.T) {
 		MaintenanceUntil: ptr(now.Add(24 * time.Hour)),
 	}
 	dataIn := issueBytes(t, s, reqIn)
-	mgr := license.NewManager(ringWith(t, "k1", pub))
+	mgr := newTestManager(ringWith(t, "k1", pub))
 	if res, err := mgr.Validate(dataIn, license.ValidationContext{ProductVersion: "2.0.0"}); err != nil || !res.Valid() {
 		t.Fatalf("newer version within maintenance should validate: %v", err)
 	}
@@ -362,7 +362,7 @@ func TestMaintenanceWindow(t *testing.T) {
 // #6b: CoveredMaxVersion semantics — the explicit maintenance ceiling.
 func TestMaintenanceCoveredMaxVersion(t *testing.T) {
 	s, pub := testKeyPair(t, "k1")
-	mgr := license.NewManager(ringWith(t, "k1", pub))
+	mgr := newTestManager(ringWith(t, "k1", pub))
 	now := time.Now().UTC()
 
 	// Maintenance still active: the ceiling is not applied, so a build higher
@@ -410,7 +410,7 @@ func TestMaintenanceCoveredMaxVersion(t *testing.T) {
 // also absent.
 func TestMaintenanceLegacyFallback(t *testing.T) {
 	s, pub := testKeyPair(t, "k1")
-	mgr := license.NewManager(ringWith(t, "k1", pub))
+	mgr := newTestManager(ringWith(t, "k1", pub))
 	now := time.Now().UTC()
 
 	// No CoveredMaxVersion, maintenance lapsed, MinVersion baseline present.
@@ -465,7 +465,7 @@ func TestMaintenanceLegacyFallback(t *testing.T) {
 // ceiling and still reject out-of-range versions.
 func TestVersionRangeUnaffectedByCoveredMax(t *testing.T) {
 	s, pub := testKeyPair(t, "k1")
-	mgr := license.NewManager(ringWith(t, "k1", pub))
+	mgr := newTestManager(ringWith(t, "k1", pub))
 
 	req := baseRequest()
 	req.VersionConstraint = license.VersionConstraint{

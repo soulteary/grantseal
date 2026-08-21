@@ -208,7 +208,8 @@ func TestIssueHonoursExplicitFields(t *testing.T) {
 	}
 }
 
-// BuildRevocationList rejects a nil signer and deduplicates/strips empty ids.
+// BuildRevocationList (legacy v1) rejects a nil signer and deduplicates/strips
+// empty ids. v1 lists are rejected by clients unless AllowLegacyV1 is set.
 func TestBuildRevocationList(t *testing.T) {
 	if _, err := issuer.BuildRevocationList(nil, []string{"a"}); err == nil {
 		t.Fatal("expected error for nil signer")
@@ -227,7 +228,7 @@ func TestBuildRevocationList(t *testing.T) {
 	if err := ring.AddPublicKeyBase64("k1", kp.PublicKeyBase64()); err != nil {
 		t.Fatal(err)
 	}
-	rp, err := license.LoadRevocationList(ring, data, time.Now().UTC())
+	rp, err := license.LoadRevocationListWithPolicy(ring, data, time.Now().UTC(), license.RevocationPolicy{AllowLegacyV1: true})
 	if err != nil {
 		t.Fatalf("load revocation list: %v", err)
 	}

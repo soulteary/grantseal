@@ -68,10 +68,15 @@ func (r *KeyRing) AddPublicKeyBase64(keyID, encoded string) error {
 	return r.AddPublicKey(keyID, ed25519.PublicKey(b))
 }
 
-// Lookup resolves a key_id to its entry, honoring enabled/revoked/time windows.
-// It returns a stable error Code so callers can distinguish unknown vs disabled
-// vs revoked vs out-of-window keys.
-func (r *KeyRing) Lookup(keyID string, now time.Time) (KeyEntry, error) {
+// LookupPublicKey resolves a key_id to its entry, honoring only the immediate
+// kill switches (unknown / revoked / disabled) and NOT the time window. It is
+// the first half of issuance-window verification: the caller verifies the
+// signature with entry.PublicKey, then calls CheckKeyPolicy with the signed
+// Payload.IssuedAt to decide whether the key was valid AT ISSUANCE. This lets a
+// key that has since passed its NotAfter still verify licenses it legitimately
+// signed while it was active, while Revoked remains an immediate kill switch
+// that rejects everything regardless of issuance time.
+func (r *KeyRing) LookupPublicKey(keyID string) (KeyEntry, error) {
 	r.mu.RLock()
 	e, ok := r.keys[keyID]
 	r.mu.RUnlock()
@@ -83,6 +88,43 @@ func (r *KeyRing) Lookup(keyID string, now time.Time) (KeyEntry, error) {
 	}
 	if !e.Enabled {
 		return KeyEntry{}, newError(CodeKeyDisabled, "key disabled", nil)
+	}
+	return e, nil
+}
+
+// CheckKeyPolicy reports whether the key was within its issuance window at the
+// given instant (typically the signed Payload.IssuedAt). Revoked/disabled keys
+// are already excluded by LookupPublicKey; this enforces the NotBefore/NotAfter
+// window. A zero issuedAt is treated as failing closed when a window is set.
+func (r *KeyRing) CheckKeyPolicy(e KeyEntry, issuedAt time.Time) error {
+	if e.Revoked {
+		return newError(CodeKeyRevoked, "key revoked", nil)
+	}
+	if !e.Enabled {
+		return newError(CodeKeyDisabled, "key disabled", nil)
+	}
+	if e.NotBefore != nil && issuedAt.Before(*e.NotBefore) {
+		return newError(CodeKeyDisabled, "key was not yet active at issuance", nil)
+	}
+	if e.NotAfter != nil && issuedAt.After(*e.NotAfter) {
+		return newError(CodeKeyDisabled, "key was past its validity window at issuance", nil)
+	}
+	return nil
+}
+
+// Lookup resolves a key_id to its entry, honoring enabled/revoked/time windows
+// evaluated at `now`. It returns a stable error Code so callers can distinguish
+// unknown vs disabled vs revoked vs out-of-window keys.
+//
+// Deprecated: Lookup evaluates the key window against `now` (wall-clock at
+// verification), which incorrectly rejects licenses signed by a key that has
+// since expired. Prefer LookupPublicKey + CheckKeyPolicy(entry, Payload.IssuedAt)
+// for issuance-window semantics. Retained for the revocation path and callers
+// that intentionally want a now-based window.
+func (r *KeyRing) Lookup(keyID string, now time.Time) (KeyEntry, error) {
+	e, err := r.LookupPublicKey(keyID)
+	if err != nil {
+		return KeyEntry{}, err
 	}
 	if e.NotBefore != nil && now.Before(*e.NotBefore) {
 		return KeyEntry{}, newError(CodeKeyDisabled, "key not yet active", nil)

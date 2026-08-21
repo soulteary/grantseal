@@ -8,7 +8,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/soulteary/grantseal/internal/issuer"
 	"github.com/soulteary/grantseal/pkg/license"
 )
 
@@ -76,7 +75,7 @@ func TestLoadRevocationListEntryCap(t *testing.T) {
 	for i := range ids {
 		ids[i] = "lic_" + itoaExt(i)
 	}
-	revEnv, err := issuer.BuildRevocationList(s, ids)
+	revEnv, err := buildRevocation(t, s, ids...)
 	if err != nil {
 		t.Fatalf("build revocation: %v", err)
 	}

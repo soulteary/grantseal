@@ -13,7 +13,7 @@ func TestDeviceBindingMatch(t *testing.T) {
 	req := baseRequest()
 	req.DeviceBinding = license.DeviceBinding{Mode: license.DeviceModeSingle, DeviceIDs: []string{"sha256:abc"}}
 	data := issueBytes(t, s, req)
-	mgr := license.NewManager(ringWith(t, "k1", pub))
+	mgr := newTestManager(ringWith(t, "k1", pub))
 	res, err := mgr.Validate(data, license.ValidationContext{DeviceFingerprint: "sha256:abc"})
 	if err != nil || !res.Valid() {
 		t.Fatalf("device match should validate: %v", err)
@@ -26,7 +26,7 @@ func TestDeviceBindingMismatch(t *testing.T) {
 	req := baseRequest()
 	req.DeviceBinding = license.DeviceBinding{Mode: license.DeviceModeSingle, DeviceIDs: []string{"sha256:abc"}}
 	data := issueBytes(t, s, req)
-	mgr := license.NewManager(ringWith(t, "k1", pub))
+	mgr := newTestManager(ringWith(t, "k1", pub))
 	_, err := mgr.Validate(data, license.ValidationContext{DeviceFingerprint: "sha256:zzz"})
 	if license.CodeOf(err) != license.CodeDeviceMismatch {
 		t.Fatalf("expected LICENSE_DEVICE_MISMATCH, got %s", license.CodeOf(err))
@@ -39,7 +39,7 @@ func TestDeviceBindingMulti(t *testing.T) {
 	req := baseRequest()
 	req.DeviceBinding = license.DeviceBinding{Mode: license.DeviceModeMulti, DeviceIDs: []string{"sha256:a", "sha256:b"}}
 	data := issueBytes(t, s, req)
-	mgr := license.NewManager(ringWith(t, "k1", pub))
+	mgr := newTestManager(ringWith(t, "k1", pub))
 	res, err := mgr.Validate(data, license.ValidationContext{DeviceFingerprint: "sha256:b"})
 	if err != nil || !res.Valid() {
 		t.Fatalf("multi device should validate: %v", err)
@@ -50,7 +50,7 @@ func TestDeviceBindingMulti(t *testing.T) {
 func TestProductMismatch(t *testing.T) {
 	s, pub := testKeyPair(t, "k1")
 	data := issueBytes(t, s, baseRequest())
-	mgr := license.NewManager(ringWith(t, "k1", pub))
+	mgr := newTestManager(ringWith(t, "k1", pub))
 	_, err := mgr.Validate(data, license.ValidationContext{ProductID: "other-app"})
 	if license.CodeOf(err) != license.CodeProductMismatch {
 		t.Fatalf("expected LICENSE_PRODUCT_MISMATCH, got %s", license.CodeOf(err))
@@ -63,7 +63,7 @@ func TestVersionBelowMin(t *testing.T) {
 	req := baseRequest()
 	req.VersionConstraint = license.VersionConstraint{MinVersion: "2.0.0"}
 	data := issueBytes(t, s, req)
-	mgr := license.NewManager(ringWith(t, "k1", pub))
+	mgr := newTestManager(ringWith(t, "k1", pub))
 	_, err := mgr.Validate(data, license.ValidationContext{ProductVersion: "1.5.0"})
 	if license.CodeOf(err) != license.CodeVersionUnsupported {
 		t.Fatalf("expected LICENSE_VERSION_UNSUPPORTED, got %s", license.CodeOf(err))
@@ -76,7 +76,7 @@ func TestVersionWithinRange(t *testing.T) {
 	req := baseRequest()
 	req.VersionConstraint = license.VersionConstraint{MinVersion: "1.0.0", MaxVersion: "2.0.0"}
 	data := issueBytes(t, s, req)
-	mgr := license.NewManager(ringWith(t, "k1", pub))
+	mgr := newTestManager(ringWith(t, "k1", pub))
 	res, err := mgr.Validate(data, license.ValidationContext{ProductVersion: "1.5.0"})
 	if err != nil || !res.Valid() {
 		t.Fatalf("version in range should validate: %v", err)
@@ -89,7 +89,7 @@ func TestVersionAboveMax(t *testing.T) {
 	req := baseRequest()
 	req.VersionConstraint = license.VersionConstraint{MaxVersion: "2.0.0"}
 	data := issueBytes(t, s, req)
-	mgr := license.NewManager(ringWith(t, "k1", pub))
+	mgr := newTestManager(ringWith(t, "k1", pub))
 	_, err := mgr.Validate(data, license.ValidationContext{ProductVersion: "3.1.0"})
 	if license.CodeOf(err) != license.CodeVersionUnsupported {
 		t.Fatalf("expected LICENSE_VERSION_UNSUPPORTED, got %s", license.CodeOf(err))
@@ -103,7 +103,7 @@ func TestFeatureGating(t *testing.T) {
 	req.Edition = license.EditionProfessional // grants core,reports,api,sso
 	req.Features = []string{"custom_x"}
 	data := issueBytes(t, s, req)
-	mgr := license.NewManager(ringWith(t, "k1", pub))
+	mgr := newTestManager(ringWith(t, "k1", pub))
 	res, err := mgr.Validate(data, license.ValidationContext{})
 	if err != nil {
 		t.Fatal(err)
@@ -122,7 +122,7 @@ func TestLimits(t *testing.T) {
 	req := baseRequest()
 	req.Limits = map[string]int64{"max_seats": 25}
 	data := issueBytes(t, s, req)
-	mgr := license.NewManager(ringWith(t, "k1", pub))
+	mgr := newTestManager(ringWith(t, "k1", pub))
 	res, err := mgr.Validate(data, license.ValidationContext{})
 	if err != nil {
 		t.Fatal(err)
@@ -155,7 +155,7 @@ func TestNotYetValid(t *testing.T) {
 	now := time.Now().UTC()
 	req.NotBefore = ptr(now.Add(48 * time.Hour))
 	data := issueBytes(t, s, req)
-	mgr := license.NewManager(ringWith(t, "k1", pub))
+	mgr := newTestManager(ringWith(t, "k1", pub))
 	_, err := mgr.Validate(data, license.ValidationContext{})
 	if license.CodeOf(err) != license.CodeNotYetValid {
 		t.Fatalf("expected LICENSE_NOT_YET_VALID, got %s", license.CodeOf(err))
@@ -174,7 +174,7 @@ func TestExpiryAndGrace(t *testing.T) {
 	req.ExpiresAt = ptr(now.Add(-72 * time.Hour))
 	req.GracePeriodDays = 0
 	data := issueBytes(t, s, req)
-	mgr := license.NewManager(ringWith(t, "k1", pub))
+	mgr := newTestManager(ringWith(t, "k1", pub))
 	_, err := mgr.Validate(data, license.ValidationContext{})
 	if license.CodeOf(err) != license.CodeExpired {
 		t.Fatalf("expected LICENSE_EXPIRED, got %s", license.CodeOf(err))

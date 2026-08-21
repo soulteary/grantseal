@@ -39,15 +39,11 @@ func TestParseEnvelopeTrailingData(t *testing.T) {
 }
 
 func TestParseEnvelopeDuplicateKey(t *testing.T) {
-	// encoding/json keeps the last value for a duplicate key; the parser must
-	// not panic and the result must be well-formed.
+	// Strict parsing rejects duplicate object keys rather than silently keeping
+	// the last value, so ambiguous envelopes cannot be smuggled past verifiers.
 	data := []byte(`{"algorithm":"Ed25519","key_id":"k1","key_id":"k2","payload":"AAAA","signature":"AAAA"}`)
-	env, err := license.ParseEnvelope(data)
-	if err != nil {
-		t.Fatalf("duplicate key parse: unexpected error %v", err)
-	}
-	if env.KeyID != "k2" {
-		t.Fatalf("expected last duplicate key value k2, got %q", env.KeyID)
+	if _, err := license.ParseEnvelope(data); license.CodeOf(err) != license.CodeMalformed {
+		t.Fatalf("duplicate key must be rejected, got %s", license.CodeOf(err))
 	}
 }
 
@@ -74,7 +70,7 @@ func TestDecodeSignatureBadBase64(t *testing.T) {
 	}
 	env.Signature = "!!!not-base64!!!"
 	mut, _ := json.Marshal(env)
-	mgr := license.NewManager(ringWith(t, "k1", pub))
+	mgr := newTestManager(ringWith(t, "k1", pub))
 	if _, err := mgr.Validate(mut, license.ValidationContext{}); license.CodeOf(err) != license.CodeMalformed {
 		t.Fatalf("bad signature base64: want CodeMalformed, got %s", license.CodeOf(err))
 	}
@@ -278,7 +274,7 @@ func TestLifetimeToleratesCorruptRollbackState(t *testing.T) {
 	req.ExpiresAt = nil
 	data := issueBytes(t, s, req)
 
-	mgr := license.NewManager(ringWith(t, "k1", pub),
+	mgr := newTestManager(ringWith(t, "k1", pub),
 		license.WithRollbackStore(mustStore(t, path, key)),
 		license.WithClock(license.FixedClock{T: time.Now().UTC()}),
 	)
@@ -324,7 +320,7 @@ func TestLoadRevocationListBadSignature(t *testing.T) {
 
 func TestLoadRevocationListDedupesDuplicateIDs(t *testing.T) {
 	s, pub := testKeyPair(t, "k1")
-	env, err := issuer.BuildRevocationList(s, []string{"dup", "dup", "other", ""})
+	env, err := buildRevocation(t, s, "dup", "dup", "other", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -365,7 +361,7 @@ func TestResultFeaturesDefensiveCopy(t *testing.T) {
 	req := baseRequest()
 	req.Edition = license.EditionEnterprise // rich default feature set
 	data := issueBytes(t, s, req)
-	mgr := license.NewManager(ringWith(t, "k1", pub), license.WithClock(license.FixedClock{T: time.Now().UTC()}))
+	mgr := newTestManager(ringWith(t, "k1", pub), license.WithClock(license.FixedClock{T: time.Now().UTC()}))
 	res, err := mgr.Validate(data, license.ValidationContext{ProductID: "acme-app"})
 	if err != nil {
 		t.Fatal(err)
@@ -387,7 +383,7 @@ func TestResultLimitsDefensiveCopy(t *testing.T) {
 	req := baseRequest()
 	req.Limits = map[string]int64{"seats": 10}
 	data := issueBytes(t, s, req)
-	mgr := license.NewManager(ringWith(t, "k1", pub), license.WithClock(license.FixedClock{T: time.Now().UTC()}))
+	mgr := newTestManager(ringWith(t, "k1", pub), license.WithClock(license.FixedClock{T: time.Now().UTC()}))
 	res, err := mgr.Validate(data, license.ValidationContext{ProductID: "acme-app"})
 	if err != nil {
 		t.Fatal(err)
@@ -402,7 +398,7 @@ func TestResultLimitsDefensiveCopy(t *testing.T) {
 func TestResultTimeAccessorsDefensiveCopy(t *testing.T) {
 	s, pub := testKeyPair(t, "k1")
 	data := issueBytes(t, s, baseRequest())
-	mgr := license.NewManager(ringWith(t, "k1", pub), license.WithClock(license.FixedClock{T: time.Now().UTC()}))
+	mgr := newTestManager(ringWith(t, "k1", pub), license.WithClock(license.FixedClock{T: time.Now().UTC()}))
 	res, err := mgr.Validate(data, license.ValidationContext{ProductID: "acme-app"})
 	if err != nil {
 		t.Fatal(err)
@@ -426,7 +422,7 @@ func TestValidateVersionFailClosedMissingProductVersion(t *testing.T) {
 	req := baseRequest()
 	req.VersionConstraint = license.VersionConstraint{MinVersion: "1.0.0"}
 	data := issueBytes(t, s, req)
-	mgr := license.NewManager(ringWith(t, "k1", pub), license.WithClock(license.FixedClock{T: time.Now().UTC()}))
+	mgr := newTestManager(ringWith(t, "k1", pub), license.WithClock(license.FixedClock{T: time.Now().UTC()}))
 	// A declared constraint with NO running version must fail closed.
 	_, err := mgr.Validate(data, license.ValidationContext{ProductID: "acme-app"})
 	if license.CodeOf(err) != license.CodeVersionUnsupported {
@@ -444,7 +440,7 @@ func TestValidateVersionPrereleaseAndUnparsable(t *testing.T) {
 	req := baseRequest()
 	req.VersionConstraint = license.VersionConstraint{MinVersion: "1.0.0", MaxVersion: "2.0.0"}
 	data := issueBytes(t, s, req)
-	mgr := license.NewManager(ringWith(t, "k1", pub), license.WithClock(license.FixedClock{T: time.Now().UTC()}))
+	mgr := newTestManager(ringWith(t, "k1", pub), license.WithClock(license.FixedClock{T: time.Now().UTC()}))
 
 	// Prerelease suffix is stripped, so 1.5.0-rc1 is treated as 1.5.0 (in range).
 	res, err := mgr.Validate(data, license.ValidationContext{ProductID: "acme-app", ProductVersion: "1.5.0-rc1"})

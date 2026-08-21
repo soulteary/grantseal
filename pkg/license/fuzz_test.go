@@ -25,7 +25,7 @@ func FuzzParseEnvelope(f *testing.F) {
 
 	ring := license.NewKeyRing()
 	_ = ring.AddPublicKey("k1", pub)
-	mgr := license.NewManager(ring)
+	mgr := newTestManager(ring)
 
 	f.Fuzz(func(t *testing.T, data []byte) {
 		// Must not panic. ParseEnvelope + full Validate exercise the parser.
@@ -46,7 +46,7 @@ func TestConcurrentValidation(t *testing.T) {
 	s, pub := testKeyPair(t, "k1")
 	data := issueBytes(t, s, baseRequest())
 	ring := ringWith(t, "k1", pub)
-	mgr := license.NewManager(ring)
+	mgr := newTestManager(ring)
 
 	const goroutines = 32
 	const iters = 50
@@ -103,7 +103,7 @@ func TestCanonicalDeterministic(t *testing.T) {
 
 	// Re-derive canonical bytes from the payload and confirm stability across
 	// repeated marshaling.
-	mgr := license.NewManager(ringWith(t, "k1", pub))
+	mgr := newTestManager(ringWith(t, "k1", pub))
 	p, err := mgr.Inspect(data)
 	if err != nil {
 		t.Fatal(err)

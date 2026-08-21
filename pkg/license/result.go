@@ -144,6 +144,64 @@ func (r ValidationResult) CheckLimit(key string, current int64) error {
 	return nil
 }
 
+// CheckLimitStrict is the fail-closed counterpart to CheckLimit. It behaves
+// identically for a DECLARED limit key (nil within the cap, CodeLimitExceeded
+// over it), but when `key` is NOT declared by the license it returns a *Error
+// with CodeLimitRequired instead of treating the resource as unlimited.
+//
+// Use it for metered resources that must always carry an explicit cap, so a
+// typo in `key` (or an issuer that forgot to set the limit) fails closed rather
+// than silently granting unlimited access. See CheckLimit's doc for the
+// rationale behind the lenient default. A non-Valid() result denies everything.
+func (r ValidationResult) CheckLimitStrict(key string, current int64) error {
+	if !r.Valid() {
+		return newError(CodeLimitExceeded, "license not valid", nil)
+	}
+	limit, ok := r.limits[key]
+	if !ok {
+		return newError(CodeLimitRequired, "required limit not declared: "+key, nil)
+	}
+	if current > limit {
+		return newError(CodeLimitExceeded, "limit exceeded for "+key, nil)
+	}
+	return nil
+}
+
+// RequireLimit is the fail-closed enforcement helper for a metered resource
+// that MUST carry an explicit cap. Unlike CheckLimit (whose lenient default
+// treats an undeclared key as unlimited), RequireLimit fails closed on every
+// ambiguous or missing condition, distinguished by stable error code:
+//
+//   - result not Valid()          -> CodeLimitRequired
+//   - key == ""                   -> CodeLimitRequired
+//   - key not declared            -> CodeLimitRequired
+//   - current < 0                 -> CodeInvalidLimits
+//   - current > declared limit    -> CodeLimitExceeded
+//   - otherwise (within cap)      -> nil
+//
+// Use it for seat/quota enforcement where a typo'd or forgotten limit key must
+// deny access rather than silently grant unlimited use. See CheckLimit's doc
+// for the rationale behind the lenient default it replaces.
+func (r ValidationResult) RequireLimit(key string, current int64) error {
+	if !r.Valid() {
+		return newError(CodeLimitRequired, "license not valid", nil)
+	}
+	if key == "" {
+		return newError(CodeLimitRequired, "required limit key must not be empty", nil)
+	}
+	limit, ok := r.limits[key]
+	if !ok {
+		return newError(CodeLimitRequired, "required limit not declared: "+key, nil)
+	}
+	if current < 0 {
+		return newError(CodeInvalidLimits, "current usage must not be negative for "+key, nil)
+	}
+	if current > limit {
+		return newError(CodeLimitExceeded, "limit exceeded for "+key, nil)
+	}
+	return nil
+}
+
 // GetEdition returns the edition (alias of Edition for requirement parity).
 func (r ValidationResult) GetEdition() Edition { return r.edition }
 

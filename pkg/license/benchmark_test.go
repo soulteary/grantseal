@@ -92,7 +92,7 @@ func BenchmarkVerifySignature(b *testing.B) {
 	if err := ring.AddPublicKey("k1", pub); err != nil {
 		b.Fatalf("add pubkey: %v", err)
 	}
-	mgr := license.NewManager(ring, license.WithClock(license.SystemClock{}))
+	mgr := newTestManager(ring, license.WithClock(license.SystemClock{}))
 
 	b.ReportAllocs()
 	b.ResetTimer()
@@ -118,7 +118,7 @@ func BenchmarkValidateMemory(b *testing.B) {
 		b.Fatalf("add pubkey: %v", err)
 	}
 	fixed := license.FixedClock{T: time.Now().UTC()}
-	mgr := license.NewManager(ring, license.WithClock(fixed))
+	mgr := newTestManager(ring, license.WithClock(fixed))
 	ctx := license.ValidationContext{ProductID: "acme-app"}
 
 	b.ReportAllocs()
@@ -145,7 +145,13 @@ func benchRevocationProvider(b *testing.B, s *issuer.Signer, ring *license.KeyRi
 	for i := 0; i < n; i++ {
 		ids = append(ids, fmt.Sprintf("lic_revoked_%08d", i))
 	}
-	env, err := issuer.BuildRevocationList(s, ids)
+	now := time.Now().UTC()
+	env, err := issuer.BuildRevocationListV2(s, issuer.RevocationListOptions{
+		Sequence:   1,
+		IssuedAt:   now,
+		ExpiresAt:  now.Add(365 * 24 * time.Hour),
+		RevokedIDs: ids,
+	})
 	if err != nil {
 		b.Fatalf("build revocation list: %v", err)
 	}
@@ -153,7 +159,7 @@ func benchRevocationProvider(b *testing.B, s *issuer.Signer, ring *license.KeyRi
 	if err != nil {
 		b.Fatalf("marshal revocation envelope: %v", err)
 	}
-	rp, err := license.LoadRevocationList(ring, data, time.Now().UTC())
+	rp, err := license.LoadRevocationList(ring, data, now)
 	if err != nil {
 		b.Fatalf("load revocation list: %v", err)
 	}
@@ -176,7 +182,7 @@ func BenchmarkValidateWithRevocation(b *testing.B) {
 			}
 			rp := benchRevocationProvider(b, s, ring, n)
 			fixed := license.FixedClock{T: time.Now().UTC()}
-			mgr := license.NewManager(ring, license.WithClock(fixed))
+			mgr := newTestManager(ring, license.WithClock(fixed))
 			ctx := license.ValidationContext{ProductID: "acme-app", Revocation: rp}
 
 			b.ReportAllocs()
@@ -231,7 +237,7 @@ func BenchmarkCanonicalBytes(b *testing.B) {
 	if err := ring.AddPublicKey("k1", pub); err != nil {
 		b.Fatalf("add pubkey: %v", err)
 	}
-	mgr := license.NewManager(ring)
+	mgr := newTestManager(ring)
 	small, err := mgr.Inspect(data)
 	if err != nil {
 		b.Fatalf("inspect small: %v", err)
@@ -274,7 +280,7 @@ func BenchmarkCachedResult(b *testing.B) {
 		b.Fatalf("add pubkey: %v", err)
 	}
 	fixed := license.FixedClock{T: time.Now().UTC()}
-	mgr := license.NewManager(ring, license.WithClock(fixed))
+	mgr := newTestManager(ring, license.WithClock(fixed))
 	res, err := mgr.Validate(data, license.ValidationContext{ProductID: "acme-app"})
 	if err != nil || !res.Valid() {
 		b.Fatalf("prime cache: %v (code %s)", err, res.Code())

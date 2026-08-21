@@ -24,7 +24,8 @@ type ValidationContext struct {
 }
 
 // validate runs the full policy pipeline against an already cryptographically
-// verified payload. It is fail-closed and never panics. `now` is trusted time.
+// verified payload. It is fail-closed and returns a stable error on every
+// supported entry point rather than panicking. `now` is trusted time.
 // `keyID` is the verified envelope key id, recorded into the result.
 func validate(p *Payload, now time.Time, keyID string, ctx ValidationContext) ValidationResult {
 	skew := ctx.ClockSkew
@@ -32,66 +33,29 @@ func validate(p *Payload, now time.Time, keyID string, ctx ValidationContext) Va
 		skew = DefaultClockSkew
 	}
 
-	// Static value validation (enums, limits, required fields, license_type
-	// time semantics).
-	if err := p.validateStatic(); err != nil {
-		return invalidResult(CodeOf(err), now)
-	}
-
-	// Revocation by license_id.
-	if ctx.Revocation != nil && ctx.Revocation.IsRevoked(p.LicenseID) {
-		return invalidResult(CodeRevoked, now)
-	}
-
-	// Product match.
-	if ctx.ProductID != "" && p.ProductID != ctx.ProductID {
-		return invalidResult(CodeProductMismatch, now)
-	}
-
-	// Time window: not_before.
-	if p.NotBefore != nil && now.Add(skew).Before(*p.NotBefore) {
-		return invalidResult(CodeNotYetValid, now)
-	}
-
-	// Version constraint.
-	if code := checkVersion(p, ctx.ProductVersion, now, skew); code != CodeOK {
-		return invalidResult(code, now)
-	}
-
-	// Device binding.
-	if code := checkDevice(p, ctx.DeviceFingerprint); code != CodeOK {
-		return invalidResult(code, now)
+	// Pre-expiry gates run in a fixed priority order; the first failing gate
+	// determines the reported code. Keep this order stable: callers depend on
+	// which code wins when several constraints fail at once.
+	for _, gate := range []func() Code{
+		func() Code { return validateStaticGate(p) },
+		func() Code { return validateRevocationGate(p, ctx) },
+		func() Code { return validateProductGate(p, ctx) },
+		func() Code { return validateNotBeforeGate(p, now, skew) },
+		func() Code { return checkVersion(p, ctx.ProductVersion, now, skew) },
+		func() Code { return checkDevice(p, ctx.DeviceFingerprint) },
+	} {
+		if code := gate(); code != CodeOK {
+			return invalidResult(code, now)
+		}
 	}
 	// Record whether the running device matched the license binding. For
 	// mode "none" there is no device constraint, so this is reported true.
 	deviceMatched := true
 
 	// Expiry + grace handling determines valid vs grace vs expired.
-	//
-	// license_type governs whether expiry is even considered:
-	//   - Lifetime: perpetual. validateStatic already rejects a lifetime
-	//     license that carries expires_at, but we defensively skip the expiry
-	//     branch here too so a lifetime license can never be expired.
-	//   - Trial / Subscription: expires_at is mandatory (enforced statically)
-	//     and is evaluated normally below.
-	status := StatusValid
-	var graceUntil *time.Time
-	if p.LicenseType != LicenseTypeLifetime && p.ExpiresAt != nil {
-		exp := *p.ExpiresAt
-		if now.Add(-skew).After(exp) {
-			// Past hard expiry; check grace window.
-			grace := exp.Add(time.Duration(p.GracePeriodDays) * 24 * time.Hour)
-			gu := grace
-			graceUntil = &gu
-			if p.GracePeriodDays > 0 && !now.Add(-skew).After(grace) {
-				status = StatusGrace
-			} else {
-				return invalidResult(CodeExpired, now)
-			}
-		} else if p.GracePeriodDays > 0 {
-			grace := exp.Add(time.Duration(p.GracePeriodDays) * 24 * time.Hour)
-			graceUntil = &grace
-		}
+	status, graceUntil, code := evaluateExpiry(p, now, skew)
+	if code != CodeOK {
+		return invalidResult(code, now)
 	}
 
 	feats := EffectiveFeatures(p)
@@ -117,6 +81,72 @@ func validate(p *Payload, now time.Time, keyID string, ctx ValidationContext) Va
 		keyID:         keyID,
 		deviceMatched: deviceMatched,
 	}
+}
+
+// validateStaticGate runs value-level validation (enums, limits, required
+// fields, license_type time semantics) and maps any failure to its stable code.
+func validateStaticGate(p *Payload) Code {
+	if err := p.validateStatic(); err != nil {
+		return CodeOf(err)
+	}
+	return CodeOK
+}
+
+// validateRevocationGate consults the optional revocation provider by license_id.
+func validateRevocationGate(p *Payload, ctx ValidationContext) Code {
+	if ctx.Revocation != nil && ctx.Revocation.IsRevoked(p.LicenseID) {
+		return CodeRevoked
+	}
+	return CodeOK
+}
+
+// validateProductGate enforces the optional expected product_id match.
+func validateProductGate(p *Payload, ctx ValidationContext) Code {
+	if ctx.ProductID != "" && p.ProductID != ctx.ProductID {
+		return CodeProductMismatch
+	}
+	return CodeOK
+}
+
+// validateNotBeforeGate rejects a license that is not yet valid, accounting for
+// tolerated clock skew.
+func validateNotBeforeGate(p *Payload, now time.Time, skew time.Duration) Code {
+	if p.NotBefore != nil && now.Add(skew).Before(*p.NotBefore) {
+		return CodeNotYetValid
+	}
+	return CodeOK
+}
+
+// evaluateExpiry resolves the effective status (valid/grace) and grace boundary,
+// or returns CodeExpired when the license is past its hard expiry and grace.
+//
+// license_type governs whether expiry is even considered:
+//   - Lifetime: perpetual. validateStatic already rejects a lifetime license
+//     that carries expires_at, but the expiry branch is defensively skipped here
+//     too so a lifetime license can never be expired.
+//   - Trial / Subscription: expires_at is mandatory (enforced statically) and is
+//     evaluated normally.
+func evaluateExpiry(p *Payload, now time.Time, skew time.Duration) (status Status, graceUntil *time.Time, code Code) {
+	status = StatusValid
+	if p.LicenseType == LicenseTypeLifetime || p.ExpiresAt == nil {
+		return status, nil, CodeOK
+	}
+	exp := *p.ExpiresAt
+	if now.Add(-skew).After(exp) {
+		// Past hard expiry; check grace window.
+		grace := exp.Add(time.Duration(p.GracePeriodDays) * 24 * time.Hour)
+		gu := grace
+		graceUntil = &gu
+		if p.GracePeriodDays > 0 && !now.Add(-skew).After(grace) {
+			return StatusGrace, graceUntil, CodeOK
+		}
+		return StatusValid, graceUntil, CodeExpired
+	}
+	if p.GracePeriodDays > 0 {
+		grace := exp.Add(time.Duration(p.GracePeriodDays) * 24 * time.Hour)
+		graceUntil = &grace
+	}
+	return status, graceUntil, CodeOK
 }
 
 // checkVersion validates the running product version against the constraint.
@@ -166,6 +196,15 @@ func checkVersion(p *Payload, version string, now time.Time, skew time.Duration)
 	if version == "" {
 		return CodeVersionUnsupported
 	}
+	if code := checkVersionBounds(vc, version); code != CodeOK {
+		return code
+	}
+	return checkMaintenanceCeiling(vc, version, now, skew)
+}
+
+// checkVersionBounds enforces the MinVersion/MaxVersion window. Any unparseable
+// running or constraint-side version fails closed (CodeVersionUnsupported).
+func checkVersionBounds(vc VersionConstraint, version string) Code {
 	if vc.MinVersion != "" {
 		cmp, ok := compareVersionsStrict(version, vc.MinVersion)
 		if !ok || cmp < 0 {
@@ -178,29 +217,38 @@ func checkVersion(p *Payload, version string, now time.Time, skew time.Duration)
 			return CodeVersionUnsupported
 		}
 	}
-	// Maintenance gate: only engages with a maintenance deadline once that
-	// deadline has lapsed (accounting for skew).
-	if vc.MaintenanceUntil != nil && now.Add(-skew).After(*vc.MaintenanceUntil) {
-		if vc.CoveredMaxVersion != "" {
-			// Explicit ceiling: builds newer than the covered maximum are not
-			// covered once maintenance has lapsed.
-			cmp, ok := compareVersionsStrict(version, vc.CoveredMaxVersion)
-			if !ok || cmp > 0 {
-				return CodeVersionUnsupported
-			}
-		} else if vc.MinVersion != "" {
-			// Compatibility path for licenses issued before CoveredMaxVersion
-			// existed: use MinVersion as the maintained baseline. Builds newer
-			// than the baseline are uncovered after maintenance lapses.
-			cmp, ok := compareVersionsStrict(version, vc.MinVersion)
-			if !ok || cmp > 0 {
-				return CodeVersionUnsupported
-			}
-		}
-		// If neither CoveredMaxVersion nor MinVersion is set, there is no
-		// baseline to compare against, so the maintenance gate is skipped
-		// rather than rejecting an otherwise valid license.
+	return CodeOK
+}
+
+// checkMaintenanceCeiling applies the maintenance-window ceiling once the
+// MaintenanceUntil deadline has lapsed (accounting for skew). It prefers the
+// explicit CoveredMaxVersion ceiling and falls back to MinVersion as the legacy
+// maintained baseline; with neither set the gate is a no-op.
+func checkMaintenanceCeiling(vc VersionConstraint, version string, now time.Time, skew time.Duration) Code {
+	if vc.MaintenanceUntil == nil || !now.Add(-skew).After(*vc.MaintenanceUntil) {
+		return CodeOK
 	}
+	if vc.CoveredMaxVersion != "" {
+		// Explicit ceiling: builds newer than the covered maximum are not
+		// covered once maintenance has lapsed.
+		cmp, ok := compareVersionsStrict(version, vc.CoveredMaxVersion)
+		if !ok || cmp > 0 {
+			return CodeVersionUnsupported
+		}
+		return CodeOK
+	}
+	if vc.MinVersion != "" {
+		// Compatibility path for licenses issued before CoveredMaxVersion
+		// existed: use MinVersion as the maintained baseline. Builds newer than
+		// the baseline are uncovered after maintenance lapses.
+		cmp, ok := compareVersionsStrict(version, vc.MinVersion)
+		if !ok || cmp > 0 {
+			return CodeVersionUnsupported
+		}
+	}
+	// If neither CoveredMaxVersion nor MinVersion is set, there is no baseline
+	// to compare against, so the maintenance gate is skipped rather than
+	// rejecting an otherwise valid license.
 	return CodeOK
 }
 

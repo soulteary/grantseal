@@ -33,7 +33,7 @@ func TestClockRollbackDetected(t *testing.T) {
 
 	s, pub := testKeyPair(t, "k1")
 	data := issueBytes(t, s, baseRequest())
-	mgr := license.NewManager(ringWith(t, "k1", pub),
+	mgr := newTestManager(ringWith(t, "k1", pub),
 		license.WithRollbackStore(mustStore(t, statePath, key)),
 		license.WithClock(license.FixedClock{T: time.Now().UTC()}), // "now" < future
 	)
@@ -86,7 +86,7 @@ func TestMissingRequiredFields(t *testing.T) {
 		t.Fatal(err)
 	}
 	data, _ := env.MarshalJSONIndent()
-	mgr := license.NewManager(ringWith(t, "k1", pub))
+	mgr := newTestManager(ringWith(t, "k1", pub))
 	_, verr := mgr.Validate(data, license.ValidationContext{})
 	if license.CodeOf(verr) != license.CodeMalformed {
 		t.Fatalf("expected LICENSE_MALFORMED, got %s", license.CodeOf(verr))
@@ -100,7 +100,7 @@ func TestOversizedFileRejected(t *testing.T) {
 		big[i] = 'x'
 	}
 	s, pub := testKeyPair(t, "k1")
-	mgr := license.NewManager(ringWith(t, "k1", pub))
+	mgr := newTestManager(ringWith(t, "k1", pub))
 	_, err := mgr.Validate(big, license.ValidationContext{})
 	if license.CodeOf(err) != license.CodeFileTooLarge {
 		t.Fatalf("expected LICENSE_FILE_TOO_LARGE, got %s", license.CodeOf(err))
@@ -118,7 +118,7 @@ func TestInvalidBase64Rejected(t *testing.T) {
 	}
 	env.Payload = "!!!not-base64!!!"
 	mut, _ := json.Marshal(env)
-	mgr := license.NewManager(ringWith(t, "k1", pub))
+	mgr := newTestManager(ringWith(t, "k1", pub))
 	_, err := mgr.Validate(mut, license.ValidationContext{})
 	if license.CodeOf(err) != license.CodeMalformed {
 		t.Fatalf("expected LICENSE_MALFORMED, got %s", license.CodeOf(err))
@@ -135,7 +135,7 @@ func TestUnsupportedAlgorithm(t *testing.T) {
 	}
 	env.Algorithm = "RS256"
 	mut, _ := json.Marshal(env)
-	mgr := license.NewManager(ringWith(t, "k1", pub))
+	mgr := newTestManager(ringWith(t, "k1", pub))
 	_, err := mgr.Validate(mut, license.ValidationContext{})
 	if license.CodeOf(err) != license.CodeUnsupportedAlgorithm {
 		t.Fatalf("expected LICENSE_UNSUPPORTED_ALGORITHM, got %s", license.CodeOf(err))
@@ -158,7 +158,7 @@ func TestUnsupportedSchema(t *testing.T) {
 		t.Fatal(err)
 	}
 	data, _ := env.MarshalJSONIndent()
-	mgr := license.NewManager(ringWith(t, "k1", pub))
+	mgr := newTestManager(ringWith(t, "k1", pub))
 	_, verr := mgr.Validate(data, license.ValidationContext{})
 	if license.CodeOf(verr) != license.CodeUnsupportedSchema {
 		t.Fatalf("expected LICENSE_UNSUPPORTED_SCHEMA, got %s", license.CodeOf(verr))
@@ -181,7 +181,7 @@ func TestUnknownEnumRejected(t *testing.T) {
 		t.Fatal(err)
 	}
 	data, _ := env.MarshalJSONIndent()
-	mgr := license.NewManager(ringWith(t, "k1", pub))
+	mgr := newTestManager(ringWith(t, "k1", pub))
 	_, verr := mgr.Validate(data, license.ValidationContext{})
 	if license.CodeOf(verr) != license.CodeInvalidEnum {
 		t.Fatalf("expected LICENSE_INVALID_ENUM, got %s", license.CodeOf(verr))
@@ -205,7 +205,7 @@ func TestRevocationList(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load revocation: %v", err)
 	}
-	mgr := license.NewManager(ring, license.WithRevocation(rp))
+	mgr := newTestManager(ring, license.WithRevocation(rp))
 	_, verr := mgr.Validate(data, license.ValidationContext{})
 	if license.CodeOf(verr) != license.CodeRevoked {
 		t.Fatalf("expected LICENSE_REVOKED, got %s", license.CodeOf(verr))
@@ -216,7 +216,7 @@ func TestRevocationList(t *testing.T) {
 func TestFileNotFound(t *testing.T) {
 	s, pub := testKeyPair(t, "k1")
 	_ = s
-	mgr := license.NewManager(ringWith(t, "k1", pub))
+	mgr := newTestManager(ringWith(t, "k1", pub))
 	_, err := mgr.LoadAndValidate(filepath.Join(t.TempDir(), "nope.lic"), license.ValidationContext{})
 	if license.CodeOf(err) != license.CodeFileNotFound {
 		t.Fatalf("expected LICENSE_FILE_NOT_FOUND, got %s", license.CodeOf(err))

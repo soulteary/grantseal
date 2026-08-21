@@ -46,7 +46,8 @@ func (e *Envelope) MarshalJSONIndent() ([]byte, error) {
 }
 
 // ParseEnvelope decodes an envelope from JSON bytes. It enforces the file-size
-// cap, rejects trailing garbage, and never panics on malformed input. It does
+// cap, rejects trailing garbage, and returns a stable error rather than
+// panicking on malformed input (continuously fuzz/race verified in CI). It does
 // NOT verify the signature (see Verifier).
 func ParseEnvelope(data []byte) (*Envelope, error) {
 	if len(data) == 0 {
@@ -56,14 +57,8 @@ func ParseEnvelope(data []byte) (*Envelope, error) {
 		return nil, newError(CodeFileTooLarge, "license data exceeds size cap", nil)
 	}
 	var env Envelope
-	dec := json.NewDecoder(bytes.NewReader(data))
-	dec.DisallowUnknownFields()
-	if err := dec.Decode(&env); err != nil {
-		return nil, newError(CodeMalformed, "decode envelope", err)
-	}
-	// Reject trailing data after the JSON object.
-	if dec.More() {
-		return nil, newError(CodeMalformed, "trailing data after envelope", nil)
+	if err := decodeStrictJSON(data, &env, MaxLicenseFileSize); err != nil {
+		return nil, err
 	}
 	if env.Algorithm == "" || env.KeyID == "" || env.Payload == "" || env.Signature == "" {
 		return nil, newError(CodeMalformed, "envelope missing required fields", nil)
@@ -100,13 +95,10 @@ func (e *Envelope) DecodePayload() (*Payload, error) {
 		return nil, err
 	}
 	var p Payload
-	dec := json.NewDecoder(bytes.NewReader(raw))
-	dec.DisallowUnknownFields()
-	if err := dec.Decode(&p); err != nil {
-		return nil, newError(CodeMalformed, "decode payload", err)
-	}
-	if dec.More() {
-		return nil, newError(CodeMalformed, "trailing data after payload", nil)
+	// The canonical payload is bounded by the license file size cap; reuse it
+	// here so an over-large embedded payload is rejected before struct decode.
+	if err := decodeStrictJSON(raw, &p, MaxLicenseFileSize); err != nil {
+		return nil, err
 	}
 	return &p, nil
 }

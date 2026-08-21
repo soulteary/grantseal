@@ -5,9 +5,23 @@ import (
 	"time"
 )
 
-// SchemaVersion is the only license schema version this build understands.
-// Unknown schema versions are rejected (no silent downgrade).
-const SchemaVersion = 1
+// LicenseSchemaVersion is the only license payload schema version this build
+// understands. Unknown schema versions are rejected (no silent downgrade).
+const LicenseSchemaVersion = 1
+
+// RevocationSchemaVersion is the current revocation-list schema version. v2 adds
+// replay-resistance metadata (list_id, sequence, expires_at) over the legacy v1
+// shape. v1 lists are rejected by default and only accepted via an explicit
+// RevocationPolicy.AllowLegacyV1 opt-in (see revocation.go).
+const RevocationSchemaVersion = 2
+
+// SchemaVersion is a deprecated alias of LicenseSchemaVersion, retained so
+// existing callers/tests that reference SchemaVersion keep compiling.
+//
+// Deprecated: use LicenseSchemaVersion for license payloads or
+// RevocationSchemaVersion for revocation lists. This alias refers to the
+// LICENSE schema version only.
+const SchemaVersion = LicenseSchemaVersion
 
 // MaxLicenseFileSize is the hard cap on a license file's size, in bytes.
 // Files larger than this are rejected before any parsing to bound work and
@@ -43,6 +57,52 @@ const (
 type Algorithm string
 
 const AlgorithmEd25519 Algorithm = "Ed25519"
+
+// Signing domain-separation prefixes. The signature covers the prefix followed
+// by the canonical payload bytes, so a signature produced for one artifact
+// class (license) can never be replayed as another (revocation), even if an
+// attacker could coerce identical canonical bytes. Changing a prefix is a
+// breaking protocol change (a fresh signing domain), which is intentional: this
+// build performs a one-time clean upgrade and does not accept unprefixed
+// (pre-domain-separation) signatures.
+const (
+	// LicenseSigningDomain is prepended to canonical license payload bytes
+	// before signing/verification.
+	LicenseSigningDomain = "grantseal/license/v1\x00"
+	// RevocationSigningDomain is prepended to canonical revocation payload
+	// bytes before signing/verification (schema v2).
+	RevocationSigningDomain = "grantseal/revocation/v2\x00"
+)
+
+// licenseSigningInput returns the exact byte sequence signed/verified for a
+// license: the license signing-domain prefix followed by the canonical bytes.
+func licenseSigningInput(canonical []byte) []byte {
+	out := make([]byte, 0, len(LicenseSigningDomain)+len(canonical))
+	out = append(out, LicenseSigningDomain...)
+	out = append(out, canonical...)
+	return out
+}
+
+// revocationSigningInput returns the exact byte sequence signed/verified for a
+// revocation list: the revocation signing-domain prefix followed by canonical
+// bytes.
+func revocationSigningInput(canonical []byte) []byte {
+	out := make([]byte, 0, len(RevocationSigningDomain)+len(canonical))
+	out = append(out, RevocationSigningDomain...)
+	out = append(out, canonical...)
+	return out
+}
+
+// LicenseSigningInput returns the exact bytes an issuer must sign (and the
+// client verifies) for a license: the license signing-domain prefix followed
+// by the canonical payload bytes. Exposed so the issuer package can produce
+// domain-separated signatures without duplicating the prefix.
+func LicenseSigningInput(canonical []byte) []byte { return licenseSigningInput(canonical) }
+
+// RevocationSigningInput returns the exact bytes an issuer must sign (and the
+// client verifies) for a revocation list (schema v2): the revocation
+// signing-domain prefix followed by the canonical payload bytes.
+func RevocationSigningInput(canonical []byte) []byte { return revocationSigningInput(canonical) }
 
 // Valid reports whether the algorithm is the single supported value.
 func (a Algorithm) Valid() bool { return a == AlgorithmEd25519 }
@@ -160,16 +220,36 @@ type Payload struct {
 // ValidatePayloadStatic runs value-level validation (enums, limits, required
 // fields) on a payload without any time/device/product context. Issuers use it
 // to reject invalid licenses before signing; the client runs it during
-// validation. It never panics.
+// validation. It returns a stable error rather than panicking on malformed
+// input (verified by the CI race/fuzz suite).
 func ValidatePayloadStatic(p *Payload) error { return p.validateStatic() }
 
 // validateStatic performs value-level validation that does not depend on the
 // current time, device or product context. It rejects unknown enums and
-// out-of-range limits. It never panics.
+// out-of-range limits, returning a stable *Error on any failure (fail-closed)
+// rather than panicking on malformed input.
 func (p *Payload) validateStatic() error {
 	if p == nil {
 		return newError(CodeMalformed, "nil payload", nil)
 	}
+	if err := p.validateIdentity(); err != nil {
+		return err
+	}
+	if err := p.validateEnums(); err != nil {
+		return err
+	}
+	if err := p.validateCaps(); err != nil {
+		return err
+	}
+	if err := p.validateLimitsRange(); err != nil {
+		return err
+	}
+	return p.validateTimeSemantics()
+}
+
+// validateIdentity checks schema version and the required identity fields that
+// every license must carry.
+func (p *Payload) validateIdentity() error {
 	if p.SchemaVersion != SchemaVersion {
 		return newError(CodeUnsupportedSchema,
 			fmt.Sprintf("unsupported schema_version %d (want %d)", p.SchemaVersion, SchemaVersion), nil)
@@ -180,6 +260,12 @@ func (p *Payload) validateStatic() error {
 	if p.IssuedAt.IsZero() {
 		return newError(CodeMalformed, "missing issued_at", nil)
 	}
+	return nil
+}
+
+// validateEnums rejects unknown edition / license_type / device-mode enum
+// values and enforces the device-binding shape invariant.
+func (p *Payload) validateEnums() error {
 	if !p.Edition.Valid() {
 		return newError(CodeInvalidEnum, fmt.Sprintf("unknown edition %q", p.Edition), nil)
 	}
@@ -192,12 +278,15 @@ func (p *Payload) validateStatic() error {
 	if p.DeviceBinding.Mode != DeviceModeNone && len(p.DeviceBinding.DeviceIDs) == 0 {
 		return newError(CodeMalformed, "device binding requires at least one device_id", nil)
 	}
+	return nil
+}
+
+// validateCaps bounds the payload's fan-out so an over-large (but validly
+// signed) license cannot force unbounded work/memory during validation.
+func (p *Payload) validateCaps() error {
 	if p.GracePeriodDays < 0 || p.GracePeriodDays > 3650 {
 		return newError(CodeInvalidLimits, "grace_period_days out of range [0,3650]", nil)
 	}
-	// Entry-count and length caps bound the payload's fan-out so an over-large
-	// (but validly signed) license cannot force unbounded work/memory during
-	// validation.
 	if len(p.Features) > MaxFeatures {
 		return newError(CodeInvalidLimits, fmt.Sprintf("too many features (%d > %d)", len(p.Features), MaxFeatures), nil)
 	}
@@ -218,6 +307,11 @@ func (p *Payload) validateStatic() error {
 			return newError(CodeInvalidLimits, fmt.Sprintf("metadata value for %q exceeds maximum length", k), nil)
 		}
 	}
+	return nil
+}
+
+// validateLimitsRange rejects empty keys and out-of-range limit values.
+func (p *Payload) validateLimitsRange() error {
 	for k, v := range p.Limits {
 		if k == "" {
 			return newError(CodeInvalidLimits, "empty limit key", nil)
@@ -229,6 +323,12 @@ func (p *Payload) validateStatic() error {
 			return newError(CodeInvalidLimits, fmt.Sprintf("limit %q exceeds maximum", k), nil)
 		}
 	}
+	return nil
+}
+
+// validateTimeSemantics enforces the license_type time invariants and the
+// logical ordering of issued_at / not_before / expires_at.
+func (p *Payload) validateTimeSemantics() error {
 	if p.NotBefore != nil && p.ExpiresAt != nil && p.ExpiresAt.Before(*p.NotBefore) {
 		return newError(CodeMalformed, "expires_at before not_before", nil)
 	}

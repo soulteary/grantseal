@@ -35,6 +35,16 @@ func ringWith(t *testing.T, keyID string, pub ed25519.PublicKey) *license.KeyRin
 	return r
 }
 
+// newTestManager builds a Manager for tests. It opts into unscoped product
+// validation by default so tests that exercise dimensions other than product
+// scoping (device/version/expiry/etc.) do not each have to pass a ProductID.
+// Tests that specifically exercise product scoping construct their Manager with
+// license.NewManager directly. Extra options are appended after the opt-out.
+func newTestManager(ring *license.KeyRing, opts ...license.Option) *license.Manager {
+	all := append([]license.Option{license.WithUnscopedProductValidation()}, opts...)
+	return license.NewManager(ring, all...)
+}
+
 // ptr returns a pointer to t.
 func ptr(t time.Time) *time.Time { return &t }
 
@@ -76,10 +86,18 @@ func signRaw(t *testing.T, s *issuer.Signer, p *license.Payload) (*license.Envel
 	return s.SignPayload(p)
 }
 
-// buildRevocation signs a revocation list for the given license IDs.
+// buildRevocation signs a v2 revocation list for the given license IDs, valid
+// for a wide window around now so tests that just need "a working revocation
+// list" pass the default strict LoadRevocationList policy.
 func buildRevocation(t *testing.T, s *issuer.Signer, ids ...string) (*license.RevocationEnvelope, error) {
 	t.Helper()
-	return issuer.BuildRevocationList(s, ids)
+	now := time.Now().UTC()
+	return issuer.BuildRevocationListV2(s, issuer.RevocationListOptions{
+		Sequence:   1,
+		IssuedAt:   now,
+		ExpiresAt:  now.Add(365 * 24 * time.Hour),
+		RevokedIDs: ids,
+	})
 }
 
 // testKeyPairF is the *testing.F variant of testKeyPair for fuzz seeds.

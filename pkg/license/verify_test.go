@@ -12,7 +12,7 @@ import (
 func TestIssueAndValidate(t *testing.T) {
 	s, pub := testKeyPair(t, "k1")
 	data := issueBytes(t, s, baseRequest())
-	mgr := license.NewManager(ringWith(t, "k1", pub))
+	mgr := newTestManager(ringWith(t, "k1", pub))
 	res, err := mgr.Validate(data, license.ValidationContext{ProductID: "acme-app"})
 	if err != nil {
 		t.Fatalf("validate: %v", err)
@@ -42,7 +42,7 @@ func TestTamperedPayloadRejected(t *testing.T) {
 	}
 	env.Payload = string(b)
 	mut, _ := json.Marshal(env)
-	mgr := license.NewManager(ringWith(t, "k1", pub))
+	mgr := newTestManager(ringWith(t, "k1", pub))
 	_, err := mgr.Validate(mut, license.ValidationContext{})
 	if code := license.CodeOf(err); code != license.CodeSignatureInvalid && code != license.CodeMalformed {
 		t.Fatalf("expected signature/malformed failure, got %s", code)
@@ -54,7 +54,7 @@ func TestWrongKeyRejected(t *testing.T) {
 	s, _ := testKeyPair(t, "k1")
 	_, otherPub := testKeyPair(t, "k1")
 	data := issueBytes(t, s, baseRequest())
-	mgr := license.NewManager(ringWith(t, "k1", otherPub))
+	mgr := newTestManager(ringWith(t, "k1", otherPub))
 	_, err := mgr.Validate(data, license.ValidationContext{})
 	if license.CodeOf(err) != license.CodeSignatureInvalid {
 		t.Fatalf("expected LICENSE_SIGNATURE_INVALID, got %s", license.CodeOf(err))
@@ -66,7 +66,7 @@ func TestUnknownKeyIDRejected(t *testing.T) {
 	s, pub := testKeyPair(t, "k2")
 	data := issueBytes(t, s, baseRequest())
 	// Ring only knows k1, license signed by k2.
-	mgr := license.NewManager(ringWith(t, "k1", pub))
+	mgr := newTestManager(ringWith(t, "k1", pub))
 	_, err := mgr.Validate(data, license.ValidationContext{})
 	if license.CodeOf(err) != license.CodeKeyUnknown {
 		t.Fatalf("expected LICENSE_KEY_UNKNOWN, got %s", license.CodeOf(err))
@@ -86,7 +86,7 @@ func TestKeyRotationOldLicenseStillValid(t *testing.T) {
 	if err := ring.AddPublicKey("k2", pubNew); err != nil {
 		t.Fatal(err)
 	}
-	mgr := license.NewManager(ring)
+	mgr := newTestManager(ring)
 	res, err := mgr.Validate(oldData, license.ValidationContext{})
 	if err != nil || !res.Valid() {
 		t.Fatalf("old license should still validate: %v code=%s", err, res.Code())
@@ -101,7 +101,7 @@ func TestDisabledKeyRejected(t *testing.T) {
 	if err := ring.Add(license.KeyEntry{KeyID: "k1", PublicKey: pub, Enabled: false}); err != nil {
 		t.Fatal(err)
 	}
-	mgr := license.NewManager(ring)
+	mgr := newTestManager(ring)
 	_, err := mgr.Validate(data, license.ValidationContext{})
 	if license.CodeOf(err) != license.CodeKeyDisabled {
 		t.Fatalf("expected LICENSE_KEY_DISABLED, got %s", license.CodeOf(err))
@@ -116,7 +116,7 @@ func TestRevokedKeyRejected(t *testing.T) {
 	if err := ring.Add(license.KeyEntry{KeyID: "k1", PublicKey: pub, Enabled: true, Revoked: true}); err != nil {
 		t.Fatal(err)
 	}
-	mgr := license.NewManager(ring)
+	mgr := newTestManager(ring)
 	_, err := mgr.Validate(data, license.ValidationContext{})
 	if license.CodeOf(err) != license.CodeKeyRevoked {
 		t.Fatalf("expected LICENSE_KEY_REVOKED, got %s", license.CodeOf(err))
@@ -139,7 +139,7 @@ func TestKeyIDMismatchRejected(t *testing.T) {
 	if err := ring.AddPublicKey("k9", pub); err != nil {
 		t.Fatal(err)
 	}
-	mgr := license.NewManager(ring)
+	mgr := newTestManager(ring)
 	_, err := mgr.Validate(mut, license.ValidationContext{})
 	if license.CodeOf(err) != license.CodeKeyIDMismatch {
 		t.Fatalf("expected LICENSE_KEY_ID_MISMATCH, got %s", license.CodeOf(err))
@@ -154,7 +154,7 @@ func TestLifetimeLicense(t *testing.T) {
 	req.Edition = license.EditionEnterprise
 	req.ExpiresAt = nil
 	data := issueBytes(t, s, req)
-	mgr := license.NewManager(ringWith(t, "k1", pub))
+	mgr := newTestManager(ringWith(t, "k1", pub))
 	res, err := mgr.Validate(data, license.ValidationContext{})
 	if err != nil || !res.Valid() {
 		t.Fatalf("lifetime should validate: %v", err)
@@ -173,7 +173,7 @@ func TestTrialLicense(t *testing.T) {
 	now := time.Now().UTC()
 	req.ExpiresAt = ptr(now.Add(7 * 24 * time.Hour))
 	data := issueBytes(t, s, req)
-	mgr := license.NewManager(ringWith(t, "k1", pub))
+	mgr := newTestManager(ringWith(t, "k1", pub))
 	res, err := mgr.Validate(data, license.ValidationContext{})
 	if err != nil || !res.Valid() {
 		t.Fatalf("trial should validate: %v", err)

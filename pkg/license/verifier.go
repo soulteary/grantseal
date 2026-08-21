@@ -2,6 +2,7 @@ package license
 
 import (
 	"crypto/ed25519"
+	"crypto/subtle"
 	"time"
 )
 
@@ -12,7 +13,9 @@ import (
 //   - the payload's embedded key_id matches the envelope key_id.
 //
 // It performs no time/device/product policy checks — that is the validator's
-// job. The verifier is fail-closed and never panics.
+// job. The verifier is fail-closed: it returns a stable error on every
+// supported entry point instead of panicking (continuously fuzz/race verified
+// in CI).
 type Verifier struct {
 	ring *KeyRing
 }
@@ -42,7 +45,12 @@ func (v *Verifier) Verify(env *Envelope, now time.Time) (*VerifyResult, error) {
 		return nil, newError(CodeUnsupportedAlgorithm, "unsupported algorithm "+string(env.Algorithm), nil)
 	}
 
-	entry, err := v.ring.Lookup(env.KeyID, now)
+	// Issuance-window semantics: look up the key honoring only immediate kill
+	// switches (unknown/revoked/disabled), verify the signature, then check the
+	// key's validity window against the SIGNED Payload.IssuedAt (not wall-clock
+	// now). This lets a since-expired key still verify licenses it legitimately
+	// signed while active, while revoked keys reject everything.
+	entry, err := v.ring.LookupPublicKey(env.KeyID)
 	if err != nil {
 		return nil, err
 	}
@@ -60,7 +68,9 @@ func (v *Verifier) Verify(env *Envelope, now time.Time) (*VerifyResult, error) {
 	}
 
 	// ed25519.Verify is constant-time in the crypto sense and returns a bool.
-	if !ed25519.Verify(entry.PublicKey, canonical, sig) {
+	// The signature covers the license signing-domain prefix followed by the
+	// canonical payload bytes (domain separation, see model.go).
+	if !ed25519.Verify(entry.PublicKey, licenseSigningInput(canonical), sig) {
 		return nil, newError(CodeSignatureInvalid, "signature does not match", nil)
 	}
 
@@ -72,6 +82,23 @@ func (v *Verifier) Verify(env *Envelope, now time.Time) (*VerifyResult, error) {
 	// preventing key_id substitution across a valid signature.
 	if payload.KeyID != env.KeyID {
 		return nil, newError(CodeKeyIDMismatch, "payload key_id does not match envelope", nil)
+	}
+	// Now that we have the authenticated Payload.IssuedAt, enforce the key's
+	// issuance window against it.
+	if err := v.ring.CheckKeyPolicy(entry, payload.IssuedAt); err != nil {
+		return nil, err
+	}
+	// Canonical equality: the carried bytes must be exactly the canonical
+	// encoding of the decoded payload. This removes any ambiguity between the
+	// signed bytes and the interpreted value (e.g. non-canonical key order or
+	// insignificant whitespace slipped past the signature). Compared in
+	// constant time to avoid leaking where they differ.
+	recanon, err := CanonicalBytes(payload)
+	if err != nil {
+		return nil, err
+	}
+	if subtle.ConstantTimeCompare(recanon, canonical) != 1 {
+		return nil, newError(CodeNonCanonicalPayload, "payload bytes are not canonical", nil)
 	}
 
 	return &VerifyResult{Payload: payload, KeyID: env.KeyID, Canonical: canonical}, nil

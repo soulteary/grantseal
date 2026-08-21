@@ -1,7 +1,6 @@
 package license
 
 import (
-	"bytes"
 	"crypto/hmac"
 	"crypto/sha256"
 	"crypto/subtle"
@@ -9,6 +8,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 )
 
@@ -30,8 +30,12 @@ type rollbackMACInput struct {
 
 // RollbackStore persists and integrity-checks RollbackState on disk. The HMAC
 // key should be derived from a built-in secret combined with a device
-// fingerprint so the state cannot be trivially forged or transplanted.
+// fingerprint so the state cannot be trivially forged or transplanted. It is
+// safe for concurrent use: all load/check/save sequences are serialized under
+// mu so concurrent validations cannot lose updates or regress the high-water
+// mark.
 type RollbackStore struct {
+	mu      sync.Mutex
 	path    string
 	hmacKey []byte
 	skew    time.Duration
@@ -68,8 +72,16 @@ func (s *RollbackStore) mac(in rollbackMACInput) (string, error) {
 
 // Load reads and verifies the on-disk state. A missing file returns (nil, nil)
 // meaning "no prior state". A tampered/corrupt file returns
-// ErrStateIntegrityFailure (fail-closed; caller decides policy per type).
+// ErrStateIntegrityFailure (fail-closed; caller decides policy per type). It
+// locks the store, so it is safe to call concurrently with CheckAndSave.
 func (s *RollbackStore) Load() (*RollbackState, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.loadLocked()
+}
+
+// loadLocked implements Load without touching the mutex. Callers must hold s.mu.
+func (s *RollbackStore) loadLocked() (*RollbackState, error) {
 	data, err := os.ReadFile(s.path)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -81,9 +93,7 @@ func (s *RollbackStore) Load() (*RollbackState, error) {
 		return nil, newError(CodeStateIntegrityFailure, "rollback state too large", nil)
 	}
 	var st RollbackState
-	dec := json.NewDecoder(bytes.NewReader(data))
-	dec.DisallowUnknownFields()
-	if err := dec.Decode(&st); err != nil {
+	if err := decodeStrictJSON(data, &st, MaxRollbackStateSize); err != nil {
 		return nil, newError(CodeStateIntegrityFailure, "decode rollback state", err)
 	}
 	want, err := s.mac(rollbackMACInput{LastTrustedTime: st.LastTrustedTime, LastVerifiedAt: st.LastVerifiedAt})
@@ -101,8 +111,16 @@ func (s *RollbackStore) Load() (*RollbackState, error) {
 	return &st, nil
 }
 
-// Save atomically writes the state with a fresh MAC (temp file + rename).
+// Save atomically writes the state with a fresh MAC (temp file + rename). It
+// locks the store.
 func (s *RollbackStore) Save(st *RollbackState) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.saveLocked(st)
+}
+
+// saveLocked implements Save without touching the mutex. Callers must hold s.mu.
+func (s *RollbackStore) saveLocked(st *RollbackState) error {
 	if st == nil {
 		return newError(CodeStateIntegrityFailure, "nil rollback state", nil)
 	}
@@ -120,7 +138,8 @@ func (s *RollbackStore) Save(st *RollbackState) error {
 
 // CheckRollback compares `now` against the stored last-trusted time. If `now`
 // is earlier than the stored time by more than the tolerated skew, it reports
-// ErrClockRollback. On success it returns an updated state to be saved.
+// ErrClockRollback. On success it returns an updated state to be saved. This is
+// a pure computation and takes no lock.
 func (s *RollbackStore) CheckRollback(prev *RollbackState, now time.Time) (*RollbackState, error) {
 	now = now.UTC()
 	next := &RollbackState{LastTrustedTime: now, LastVerifiedAt: now}
@@ -135,6 +154,30 @@ func (s *RollbackStore) CheckRollback(prev *RollbackState, now time.Time) (*Roll
 		return nil, newError(CodeClockRollback, "system clock moved backward past last trusted time", nil)
 	}
 	return next, nil
+}
+
+// CheckAndSave performs the full load -> check-rollback -> save sequence for a
+// single trusted-time observation ATOMICALLY under the store's mutex. This is
+// the method authorization paths should use: it prevents concurrent
+// validations from losing updates or regressing the high-water mark, and it
+// guarantees the persisted mark is the maximum trusted time observed.
+//
+// A corrupt/tampered state file is fatal (CodeStateIntegrityFailure); the state
+// is never silently reset. A backward clock jump past the high-water mark
+// returns CodeClockRollback. On success the new high-water mark is durably
+// written before returning.
+func (s *RollbackStore) CheckAndSave(now time.Time) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	prev, err := s.loadLocked()
+	if err != nil {
+		return err
+	}
+	next, err := s.CheckRollback(prev, now)
+	if err != nil {
+		return err
+	}
+	return s.saveLocked(next)
 }
 
 // DeriveRollbackKey derives an HMAC key from a built-in secret and a device
@@ -191,6 +234,14 @@ func atomicWriteFile(path string, data []byte, perm os.FileMode) error {
 	}
 	if err := os.Rename(tmpName, path); err != nil {
 		return newError(CodeStateIntegrityFailure, "rename temp file", err)
+	}
+	// fsync the parent directory so the rename is durable across a crash
+	// (POSIX: a rename is not guaranteed persistent until the directory entry
+	// is synced). Best-effort on platforms/filesystems where directory sync is
+	// unsupported.
+	if d, derr := os.Open(dir); derr == nil {
+		_ = d.Sync()
+		_ = d.Close()
 	}
 	return nil
 }

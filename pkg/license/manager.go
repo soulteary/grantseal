@@ -17,6 +17,10 @@ type Manager struct {
 	rollback   *RollbackStore
 	revocation RevocationProvider
 	skew       time.Duration
+	// unscopedProduct, when true, permits Validate with an empty
+	// ValidationContext.ProductID (legacy behavior). Default false: validation
+	// must be scoped to a product or it fails closed with CodeProductRequired.
+	unscopedProduct bool
 
 	mu     sync.RWMutex
 	cached *cachedResult
@@ -30,17 +34,57 @@ type cachedResult struct {
 // Option configures a Manager.
 type Option func(*Manager)
 
-// WithClock sets the trusted time provider (default SystemClock).
-func WithClock(c TrustedTimeProvider) Option { return func(m *Manager) { m.clock = c } }
+// WithClock sets the trusted time provider (default SystemClock). A nil
+// provider is ignored (the default SystemClock is retained) rather than causing
+// a later nil-dereference panic.
+func WithClock(c TrustedTimeProvider) Option {
+	return func(m *Manager) {
+		if c != nil {
+			m.clock = c
+		}
+	}
+}
 
-// WithRollbackStore enables anti-rollback checks using the given store.
-func WithRollbackStore(s *RollbackStore) Option { return func(m *Manager) { m.rollback = s } }
+// WithRollbackStore enables anti-rollback checks using the given store. A nil
+// store is ignored (anti-rollback stays disabled) rather than panicking later.
+func WithRollbackStore(s *RollbackStore) Option {
+	return func(m *Manager) {
+		if s != nil {
+			m.rollback = s
+		}
+	}
+}
 
-// WithRevocation sets a revocation provider consulted during validation.
-func WithRevocation(r RevocationProvider) Option { return func(m *Manager) { m.revocation = r } }
+// WithRevocation sets a revocation provider consulted during validation. A nil
+// provider is ignored.
+func WithRevocation(r RevocationProvider) Option {
+	return func(m *Manager) {
+		if r != nil {
+			m.revocation = r
+		}
+	}
+}
 
 // WithClockSkew overrides the tolerated clock skew (default DefaultClockSkew).
-func WithClockSkew(d time.Duration) Option { return func(m *Manager) { m.skew = d } }
+// Non-positive values are ignored (the default/env-derived skew is retained).
+func WithClockSkew(d time.Duration) Option {
+	return func(m *Manager) {
+		if d > 0 {
+			m.skew = d
+		}
+	}
+}
+
+// WithUnscopedProductValidation OPTS OUT of the default requirement that every
+// validation be scoped to a product (a non-empty ValidationContext.ProductID).
+//
+// DANGER: with this option, Validate will accept a license regardless of which
+// product it was issued for when the caller supplies no ProductID. Only use it
+// for single-product deployments where product scoping is genuinely irrelevant,
+// or diagnostic tooling. Prefer always passing ValidationContext.ProductID.
+func WithUnscopedProductValidation() Option {
+	return func(m *Manager) { m.unscopedProduct = true }
+}
 
 // clockSkewEnvVar lets operators tune the tolerated clock skew without code
 // changes (e.g. shorter windows for reproducible demos/tests). An explicit
@@ -75,19 +119,29 @@ func clockSkewDefault() time.Duration {
 
 // Validate cryptographically verifies and policy-validates raw envelope bytes.
 // It returns a read-only ValidationResult. On any failure it returns an invalid
-// result plus a stable *Error (fail-closed). It never panics.
+// result plus a stable *Error (fail-closed): every supported entry point
+// returns an error instead of panicking (continuously fuzz/race verified in CI).
 //
 // Order of operations (security-relevant): the envelope is parsed and its
 // signature verified BEFORE any anti-rollback state is loaded, checked or
-// saved. This ensures malformed or forged input can never pollute the trusted
-// last-seen-time high-water mark nor cause a state file to be written from
-// untrusted data.
+// saved. Anti-rollback state is only advanced AFTER the license passes full
+// policy validation (valid or within grace) — a malformed, forged, expired,
+// revoked, product-mismatched or device-mismatched license can never pollute
+// the trusted last-seen-time high-water mark nor cause a state file to be
+// written from rejected data.
 func (m *Manager) Validate(data []byte, ctx ValidationContext) (ValidationResult, error) {
 	now, err := m.clock.Now()
 	if err != nil {
 		return invalidResult(CodeClockRollback, time.Now().UTC()), newError(CodeClockRollback, "trusted time unavailable", err)
 	}
 	now = now.UTC()
+
+	// Fail closed when validation is not scoped to a product, unless the
+	// operator explicitly opted out with WithUnscopedProductValidation.
+	if ctx.ProductID == "" && !m.unscopedProduct {
+		return invalidResult(CodeProductRequired, now), newError(CodeProductRequired,
+			"validation must be scoped to a product (set ValidationContext.ProductID or opt out with WithUnscopedProductValidation)", nil)
+	}
 
 	// 1. Parse + cryptographically verify first (untrusted input must not
 	//    touch rollback state until it is proven authentic).
@@ -103,15 +157,6 @@ func (m *Manager) Validate(data []byte, ctx ValidationContext) (ValidationResult
 		return invalidResult(CodeOf(err), now), err
 	}
 
-	// 2. Anti-rollback, now that we have an authentic payload (and thus its
-	//    license_type). Only genuine, signed licenses affect the high-water
-	//    mark or are permitted to persist state.
-	if m.rollback != nil {
-		if rerr := m.checkAndPersistRollback(vr.Payload, now); rerr != nil {
-			return invalidResult(CodeOf(rerr), now), rerr
-		}
-	}
-
 	if ctx.Revocation == nil {
 		ctx.Revocation = m.revocation
 	}
@@ -119,52 +164,51 @@ func (m *Manager) Validate(data []byte, ctx ValidationContext) (ValidationResult
 		ctx.ClockSkew = m.skew
 	}
 
+	// 2. Full policy validation on the authentic payload.
 	result := validate(vr.Payload, now, vr.KeyID, ctx)
 	if !result.Valid() {
 		return result, newError(result.Code(), "license validation failed", nil)
 	}
+
+	// 3. Anti-rollback: only AFTER the license is proven both authentic AND
+	//    valid/grace do we advance the trusted-time high-water mark. Rejected
+	//    licenses never write state. Lifetime licenses are time-independent and
+	//    skip anti-rollback entirely (see checkAndPersistRollback).
+	if m.rollback != nil {
+		if rerr := m.checkAndPersistRollback(vr.Payload, now); rerr != nil {
+			return invalidResult(CodeOf(rerr), now), rerr
+		}
+	}
+
 	m.storeCache(result)
 	return result, nil
 }
 
-// checkAndPersistRollback loads the anti-rollback state, checks for a backward
-// clock jump, and persists the updated high-water mark. State-integrity
-// failures are handled per license_type (fail-closed policy, #5):
-//   - Trial / Subscription (time-limited): a corrupt/tampered state file is
-//     FATAL (CodeStateIntegrityFailure). We never silently delete the state to
-//     bypass detection.
-//   - Lifetime (perpetual, time-independent): a corrupt state file is
-//     tolerated. Lifetime validity does not depend on time or on the
-//     high-water mark, so we start fresh rather than deny a legitimate user.
+// checkAndPersistRollback advances the anti-rollback high-water mark for a
+// license that has ALREADY passed authentication and full policy validation.
+// It is intentionally the LAST step: rejected licenses never reach here, so a
+// forged/expired/mismatched license can never advance the trusted-time mark.
 //
-// IMPORTANT (#5): Lifetime licenses are, BY DESIGN, IMMUNE to anti-rollback.
-// Their authorization decision is time-independent, so a clock rolled backward
-// (or a wiped/corrupt state file) cannot cause a Lifetime license to be denied
-// here — anti-rollback simply does not apply to them. Do NOT rely on this path
-// to detect clock tampering for Lifetime licenses; only time-limited types
-// (Trial/Subscription) are protected by the high-water mark.
+// license_type governs whether anti-rollback applies at all:
+//   - Trial / Subscription (time-limited): the high-water mark is enforced.
+//     A corrupt/tampered state file is FATAL (CodeStateIntegrityFailure); we
+//     never silently delete the state to bypass detection.
+//   - Lifetime (perpetual, time-independent): anti-rollback DOES NOT APPLY.
+//     Their authorization decision is time-independent, so we neither read,
+//     write, nor reset the state file for a lifetime license. A clock rolled
+//     backward cannot deny a lifetime license here — this is BY DESIGN. Do NOT
+//     rely on this path to detect clock tampering for lifetime licenses.
+//
+// The load->check->save sequence is performed atomically under the store's
+// mutex via CheckAndSave, so concurrent validations cannot lose updates or
+// regress the high-water mark.
 func (m *Manager) checkAndPersistRollback(p *Payload, now time.Time) error {
-	prev, lerr := m.rollback.Load()
-	if lerr != nil {
-		if p.LicenseType == LicenseTypeLifetime {
-			// Time-independent license: tolerate corrupt state and reset from a
-			// clean slate. This is an explicit, documented recovery path (not a
-			// silent bypass): it only applies where time integrity is
-			// irrelevant to the authorization decision.
-			prev = nil
-		} else {
-			// Fail-closed for time-limited licenses.
-			return lerr
-		}
+	if p.LicenseType == LicenseTypeLifetime {
+		// Lifetime licenses are immune to anti-rollback and must not create,
+		// touch, or reset the state file.
+		return nil
 	}
-	next, rerr := m.rollback.CheckRollback(prev, now)
-	if rerr != nil {
-		return rerr
-	}
-	if serr := m.rollback.Save(next); serr != nil {
-		return serr
-	}
-	return nil
+	return m.rollback.CheckAndSave(now)
 }
 
 // LoadAndValidate reads a license file from disk (enforcing the size cap) and

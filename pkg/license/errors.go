@@ -5,7 +5,9 @@
 //   - Signatures cover the complete canonical (deterministic sorted-key JSON) payload.
 //   - subtle.ConstantTimeCompare is used for sensitive comparisons.
 //   - This package NEVER contains private keys; it only verifies.
-//   - The verifier is fail-closed and never panics on malformed input.
+//   - The verifier is fail-closed: it returns a stable error on every supported
+//     entry point instead of panicking on malformed input (a property the CI
+//     race detector and fuzz targets exercise continuously).
 package license
 
 import "errors"
@@ -38,6 +40,46 @@ const (
 	CodeFeatureDenied         Code = "LICENSE_FEATURE_DENIED"
 	CodeLimitExceeded         Code = "LICENSE_LIMIT_EXCEEDED"
 	CodeStateIntegrityFailure Code = "LICENSE_STATE_INTEGRITY_FAILURE"
+
+	// CodeProductRequired is returned when validation is not scoped to a
+	// product (empty ProductID) and the Manager was not explicitly configured
+	// with WithUnscopedProductValidation. Fail-closed: an unscoped validation
+	// could authorize a license issued for a different product.
+	CodeProductRequired Code = "LICENSE_PRODUCT_REQUIRED"
+	// CodeNonCanonicalPayload is returned when a signed payload's carried bytes
+	// are not the canonical encoding of the payload. The signature may be
+	// valid, but non-canonical bytes are rejected to remove any ambiguity
+	// between what was signed and what is interpreted.
+	CodeNonCanonicalPayload Code = "LICENSE_NON_CANONICAL_PAYLOAD"
+
+	// Revocation v2 replay-resistance codes. These distinguish a revocation
+	// list's cryptographic authenticity (still CodeSignatureInvalid etc.) from
+	// its distribution freshness and local anti-replay state.
+	//
+	// CodeRevocationStale is returned when a validly-signed revocation list has
+	// a sequence lower than the highest sequence already recorded in the local
+	// high-water state store (an old list is being replayed).
+	CodeRevocationStale Code = "LICENSE_REVOCATION_STALE"
+	// CodeRevocationFromFuture is returned when a revocation list's issued_at is
+	// further in the future than the tolerated clock skew allows.
+	CodeRevocationFromFuture Code = "LICENSE_REVOCATION_FROM_FUTURE"
+	// CodeRevocationExpired is returned when a revocation list's expires_at is
+	// in the past (beyond tolerated skew): the distribution is too old to trust.
+	CodeRevocationExpired Code = "LICENSE_REVOCATION_EXPIRED"
+	// CodeRevocationRollback is returned when a revocation list reuses a
+	// previously seen sequence but carries a different payload digest, i.e. an
+	// attempt to substitute content at an already-accepted sequence.
+	CodeRevocationRollback Code = "LICENSE_REVOCATION_ROLLBACK"
+	// CodeRevocationStateIntegrityFailure is returned when the local revocation
+	// high-water state store is corrupt or fails its integrity (HMAC) check.
+	CodeRevocationStateIntegrityFailure Code = "LICENSE_REVOCATION_STATE_INTEGRITY_FAILURE"
+
+	// CodeLimitRequired is returned by strict limit checks (CheckLimitStrict /
+	// RequireLimit) when the queried limit key is NOT declared by the license.
+	// The default CheckLimit treats an undeclared limit as unlimited (returns
+	// nil); the strict variants instead fail closed so a typo'd or forgotten
+	// limit key cannot silently grant unlimited access.
+	CodeLimitRequired Code = "LICENSE_LIMIT_REQUIRED"
 
 	// CodeFeatureUnavailable is a backward-compatible alias of the older
 	// "LICENSE_FEATURE_UNAVAILABLE" spelling. New code should emit
@@ -105,6 +147,15 @@ var (
 	ErrFeatureDenied         = &Error{Code: CodeFeatureDenied}
 	ErrLimitExceeded         = &Error{Code: CodeLimitExceeded}
 	ErrStateIntegrityFailure = &Error{Code: CodeStateIntegrityFailure}
+	ErrProductRequired       = &Error{Code: CodeProductRequired}
+	ErrNonCanonicalPayload   = &Error{Code: CodeNonCanonicalPayload}
+
+	ErrRevocationStale                 = &Error{Code: CodeRevocationStale}
+	ErrRevocationFromFuture            = &Error{Code: CodeRevocationFromFuture}
+	ErrRevocationExpired               = &Error{Code: CodeRevocationExpired}
+	ErrRevocationRollback              = &Error{Code: CodeRevocationRollback}
+	ErrRevocationStateIntegrityFailure = &Error{Code: CodeRevocationStateIntegrityFailure}
+	ErrLimitRequired                   = &Error{Code: CodeLimitRequired}
 
 	// ErrFeatureUnavailable is retained as a backward-compatible alias for the
 	// older feature-denied sentinel. Prefer ErrFeatureDenied in new code.

@@ -58,7 +58,13 @@ func FuzzLoadRevocationList(f *testing.F) {
 	s, pub := testKeyPairF(f, "k1")
 
 	// A real, valid signed revocation list is the most useful seed.
-	if env, err := issuer.BuildRevocationList(s, []string{"lic_a", "lic_b"}); err == nil {
+	seedNow := time.Now().UTC()
+	if env, err := issuer.BuildRevocationListV2(s, issuer.RevocationListOptions{
+		Sequence:   1,
+		IssuedAt:   seedNow,
+		ExpiresAt:  seedNow.Add(365 * 24 * time.Hour),
+		RevokedIDs: []string{"lic_a", "lic_b"},
+	}); err == nil {
 		if data, merr := json.Marshal(env); merr == nil {
 			f.Add(data)
 		}

@@ -50,6 +50,15 @@ func (kp *KeyPair) privateKeyBase64() string {
 // WriteKeyFiles writes the private key (0600) and public key (0644) to disk.
 // It refuses to overwrite an existing private-key file unless `force` is set,
 // and verifies the private file lands with restrictive permissions.
+//
+// Durability & failure semantics: both files are fsynced and the containing
+// directory is fsynced so a crash cannot leave a truncated key on disk. The two
+// files are written as a group but NOT transactionally: the private key is
+// written first, and if the subsequent public-key write fails the already
+// written private key is removed and an error is returned, so the caller never
+// observes a private key without its matching public key. In no-force mode the
+// private key is created with O_EXCL (never truncating an existing file); in
+// force mode it is atomically replaced via a temp file + rename.
 func (kp *KeyPair) WriteKeyFiles(dir string, force bool) (privPath, pubPath string, err error) {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return "", "", fmt.Errorf("issuer: mkdir: %w", err)
@@ -57,37 +66,98 @@ func (kp *KeyPair) WriteKeyFiles(dir string, force bool) (privPath, pubPath stri
 	privPath = filepath.Join(dir, kp.KeyID+"-private.key")
 	pubPath = filepath.Join(dir, kp.KeyID+"-public.key")
 
-	if !force {
-		if _, statErr := os.Stat(privPath); statErr == nil {
-			return "", "", fmt.Errorf("issuer: refusing to overwrite existing private key %q (use force)", privPath)
-		}
-	}
-
-	// Private key: create exclusively when not forcing, 0600.
-	flags := os.O_WRONLY | os.O_CREATE | os.O_TRUNC
-	if !force {
-		flags |= os.O_EXCL
-	}
-	pf, err := os.OpenFile(privPath, flags, 0o600)
-	if err != nil {
-		return "", "", fmt.Errorf("issuer: open private key file: %w", err)
-	}
-	if _, err := pf.WriteString(kp.privateKeyBase64() + "\n"); err != nil {
-		_ = pf.Close()
+	if err := writeKeyFileDurable(privPath, []byte(kp.privateKeyBase64()+"\n"), 0o600, force); err != nil {
 		return "", "", fmt.Errorf("issuer: write private key: %w", err)
-	}
-	if err := pf.Close(); err != nil {
-		return "", "", fmt.Errorf("issuer: close private key: %w", err)
 	}
 	// Enforce 0600 in case umask relaxed it.
 	if err := os.Chmod(privPath, 0o600); err != nil {
 		return "", "", fmt.Errorf("issuer: chmod private key: %w", err)
 	}
 
-	if err := os.WriteFile(pubPath, []byte(kp.PublicKeyBase64()+"\n"), 0o644); err != nil {
+	if err := writeKeyFileDurable(pubPath, []byte(kp.PublicKeyBase64()+"\n"), 0o644, true); err != nil {
+		// Roll back the private key so we never leave it without its public
+		// counterpart (see the group-write semantics above).
+		_ = os.Remove(privPath)
 		return "", "", fmt.Errorf("issuer: write public key: %w", err)
 	}
 	return privPath, pubPath, nil
+}
+
+// writeKeyFileDurable writes data to path, fsyncing both the file and its
+// parent directory. In no-force mode it uses O_CREATE|O_EXCL so an existing
+// file is never clobbered; in force mode it atomically replaces via a sibling
+// temp file + rename (without truncating the destination first).
+func writeKeyFileDurable(path string, data []byte, perm os.FileMode, force bool) error {
+	if !force {
+		f, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, perm)
+		if err != nil {
+			if os.IsExist(err) {
+				return fmt.Errorf("refusing to overwrite existing file %q (use force)", path)
+			}
+			return err
+		}
+		if _, err := f.Write(data); err != nil {
+			_ = f.Close()
+			_ = os.Remove(path)
+			return err
+		}
+		if err := f.Sync(); err != nil {
+			_ = f.Close()
+			_ = os.Remove(path)
+			return err
+		}
+		if err := f.Close(); err != nil {
+			return err
+		}
+		return fsyncDirIssuer(filepath.Dir(path))
+	}
+
+	dir := filepath.Dir(path)
+	tmp, err := os.CreateTemp(dir, ".tmp-key-*")
+	if err != nil {
+		return err
+	}
+	tmpName := tmp.Name()
+	defer func() { _ = os.Remove(tmpName) }()
+	if _, err := tmp.Write(data); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Chmod(perm); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Sync(); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	if err := os.Rename(tmpName, path); err != nil {
+		return err
+	}
+	return fsyncDirIssuer(dir)
+}
+
+// fsyncDirIssuer fsyncs a directory so a create/rename entry survives a crash.
+// Directory fsync is not supported on Windows, so its errors are ignored there.
+func fsyncDirIssuer(dir string) error {
+	d, err := os.Open(dir)
+	if err != nil {
+		if runtime.GOOS == "windows" {
+			return nil
+		}
+		return err
+	}
+	if err := d.Sync(); err != nil {
+		_ = d.Close()
+		if runtime.GOOS == "windows" {
+			return nil
+		}
+		return err
+	}
+	return d.Close()
 }
 
 // LoadPrivateKey reads a Base64URL-encoded Ed25519 seed from a file and returns
