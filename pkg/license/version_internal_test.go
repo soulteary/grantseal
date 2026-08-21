@@ -264,6 +264,117 @@ func TestValidateStaticEntryCountCaps(t *testing.T) {
 	})
 }
 
+// TestComparePrereleaseBoundaries exercises comparePrerelease's empty-vs-empty,
+// empty-vs-nonempty (normal release outranks prerelease), shared-prefix, and
+// differing-length arms directly.
+func TestComparePrereleaseBoundaries(t *testing.T) {
+	cases := []struct {
+		name string
+		a, b []string
+		want int
+	}{
+		{"both_empty", nil, nil, 0},
+		{"a_empty_release_higher", nil, []string{"alpha"}, 1},
+		{"b_empty_release_higher", []string{"alpha"}, nil, -1},
+		{"equal_single", []string{"alpha"}, []string{"alpha"}, 0},
+		{"first_id_differs", []string{"alpha"}, []string{"beta"}, -1},
+		{"shorter_lower", []string{"alpha"}, []string{"alpha", "1"}, -1},
+		{"longer_higher", []string{"alpha", "1"}, []string{"alpha"}, 1},
+		{"equal_multi", []string{"alpha", "1"}, []string{"alpha", "1"}, 0},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := comparePrerelease(tc.a, tc.b); got != tc.want {
+				t.Fatalf("comparePrerelease(%v,%v): want %d, got %d", tc.a, tc.b, tc.want, got)
+			}
+		})
+	}
+}
+
+// TestComparePrereleaseIDBoundaries covers the numeric/numeric, numeric/alpha,
+// alpha/numeric, and alpha/alpha arms of comparePrereleaseID.
+func TestComparePrereleaseIDBoundaries(t *testing.T) {
+	cases := []struct {
+		a, b string
+		want int
+	}{
+		{"1", "1", 0},
+		{"1", "2", -1},
+		{"11", "2", 1},     // numeric compared numerically, not lexically
+		{"1", "alpha", -1}, // numeric < alphanumeric
+		{"alpha", "1", 1},  // alphanumeric > numeric
+		{"alpha", "beta", -1},
+		{"beta", "alpha", 1},
+		{"alpha", "alpha", 0},
+	}
+	for _, tc := range cases {
+		if got := comparePrereleaseID(tc.a, tc.b); got != tc.want {
+			t.Fatalf("comparePrereleaseID(%q,%q): want %d, got %d", tc.a, tc.b, tc.want, got)
+		}
+	}
+}
+
+// TestIsNumericIDBoundaries covers empty, digit-only, and non-digit inputs.
+func TestIsNumericIDBoundaries(t *testing.T) {
+	yes := []string{"0", "1", "42", "007"} // isNumericID does not reject leading zeros
+	for _, s := range yes {
+		if !isNumericID(s) {
+			t.Fatalf("isNumericID(%q): want true", s)
+		}
+	}
+	no := []string{"", "a", "1a", "1.2", "-1", " 1"}
+	for _, s := range no {
+		if isNumericID(s) {
+			t.Fatalf("isNumericID(%q): want false", s)
+		}
+	}
+}
+
+// TestIsAlphanumericIDBoundaries covers the [0-9A-Za-z-] character class,
+// including the empty and illegal-character rejections.
+func TestIsAlphanumericIDBoundaries(t *testing.T) {
+	yes := []string{"a", "Z", "0", "-", "alpha-1", "A-9z"}
+	for _, s := range yes {
+		if !isAlphanumericID(s) {
+			t.Fatalf("isAlphanumericID(%q): want true", s)
+		}
+	}
+	no := []string{"", "a.b", "a_b", "a b", "a+b", "π"}
+	for _, s := range no {
+		if isAlphanumericID(s) {
+			t.Fatalf("isAlphanumericID(%q): want false", s)
+		}
+	}
+}
+
+// TestIsValidDotSeparatedBoundaries covers empty input, empty segments, illegal
+// characters, and the allowLeadingZero toggle for numeric segments.
+func TestIsValidDotSeparatedBoundaries(t *testing.T) {
+	// allowLeadingZero = false (prerelease-style).
+	if !isValidDotSeparated("alpha.1.beta", false) {
+		t.Fatal("valid dotted identifiers should pass")
+	}
+	if isValidDotSeparated("", false) {
+		t.Fatal("empty string must be rejected")
+	}
+	if isValidDotSeparated("a..b", false) {
+		t.Fatal("empty segment must be rejected")
+	}
+	if isValidDotSeparated("a.b_c", false) {
+		t.Fatal("illegal character must be rejected")
+	}
+	if isValidDotSeparated("a.01", false) {
+		t.Fatal("leading-zero numeric segment must be rejected when disallowed")
+	}
+	// allowLeadingZero = true (build-metadata-style): leading zeros permitted.
+	if !isValidDotSeparated("a.01", true) {
+		t.Fatal("leading-zero numeric segment should pass when allowed")
+	}
+	if !isValidDotSeparated("build.001.x", true) {
+		t.Fatal("build metadata with leading zeros should pass")
+	}
+}
+
 // itoa is a tiny local helper to avoid importing strconv just for tests.
 func itoa(i int) string {
 	if i == 0 {

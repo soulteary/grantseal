@@ -109,10 +109,15 @@ func utcPtr(t *time.Time) *time.Time {
 	return &u
 }
 
+// randRead is the source of cryptographic randomness for id/serial generation.
+// It defaults to crypto/rand.Read; tests override it to drive the rand-failure
+// error arms.
+var randRead = rand.Read
+
 // randomID returns a hex-encoded cryptographically random id of n bytes.
 func randomID(n int) (string, error) {
 	b := make([]byte, n)
-	if _, err := rand.Read(b); err != nil {
+	if _, err := randRead(b); err != nil {
 		return "", fmt.Errorf("issuer: random id: %w", err)
 	}
 	return hex.EncodeToString(b), nil
@@ -121,7 +126,7 @@ func randomID(n int) (string, error) {
 // randomSerial returns a grouped uppercase serial like ABCD-EF12-3456-7890.
 func randomSerial() (string, error) {
 	b := make([]byte, 10)
-	if _, err := rand.Read(b); err != nil {
+	if _, err := randRead(b); err != nil {
 		return "", fmt.Errorf("issuer: random serial: %w", err)
 	}
 	const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789" // no ambiguous chars

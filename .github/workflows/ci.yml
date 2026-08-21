@@ -75,17 +75,23 @@ jobs:
       # GTR runs `go test` once with the race detector and derives both test
       # stats and coverage from that single run, then enforces the gates.
       # Read-only on PRs: no write-back, no secrets. The package list excludes
-      # examples/ (a tests-free demo binary); total gate 80 matches the measured
-      # 84.02%, and the per-package gate 70 clears every package (lowest is
-      # internal/issuer at ~78.9%; cmd/license-tool is ~80.8%).
+      # examples/ (a tests-free demo binary). After the coverage-hardening pass
+      # (injectable filesystem/random-source seams driving the durability and
+      # crypto/rand failure arms) the measured total is ~95.1% (local view;
+      # per-package: pkg/license ~96%, pkg/fingerprint ~98%, cmd/license-tool
+      # ~93%, internal/issuer ~92%). The only remaining exempt branches are the
+      # Windows-only directory-fsync arms (unreachable on the Linux runner) and a
+      # few marshal/canonical error paths that cannot occur for valid inputs.
+      # Total gate 93 and per-package gate 88 both sit below the measured numbers
+      # with margin to absorb macOS/Linux platform-file variance.
       - name: go test + coverage gate (GTR)
         uses: soulteary/go-test-report-action@92d333b2adb625436dc9eec7e7335c2af5db61c8 # v1.0.0
         with:
           packages: "./cmd/... ./internal/... ./pkg/..."
           race: "true"
           cover_mode: atomic
-          coverage_threshold: "80"
-          package_threshold: "70"
+          coverage_threshold: "93"
+          package_threshold: "88"
           commit: "false"
 
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
@@ -280,8 +286,8 @@ jobs:
           packages: "./cmd/... ./internal/... ./pkg/..."
           race: "true"
           cover_mode: atomic
-          coverage_threshold: "80"
-          package_threshold: "70"
+          coverage_threshold: "93"
+          package_threshold: "88"
           commit: "false"
 
       # Hand only the report artifacts to the write-back job. The downstream job

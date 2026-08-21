@@ -34,11 +34,22 @@ func writeFileNoClobber(path string, data []byte, perm os.FileMode, force bool) 
 	return writeAtomicReplace(path, data, perm)
 }
 
+// Filesystem seams: defaults are the real os.* implementations. Tests override
+// these to exercise durable-write failure arms (create/rename/dir-fsync) that a
+// healthy filesystem never reaches.
+var (
+	fsOpenFile   = os.OpenFile
+	fsCreateTemp = os.CreateTemp
+	fsRename     = os.Rename
+	fsOpen       = os.Open
+	runtimeGOOS  = runtime.GOOS
+)
+
 // writeExclusive creates path with O_CREATE|O_EXCL|O_WRONLY, writes data,
 // fsyncs the file, and fsyncs the parent directory so the new entry is durable.
 // It fails (without clobbering) if the path already exists.
 func writeExclusive(path string, data []byte, perm os.FileMode) error {
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, perm)
+	f, err := fsOpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, perm)
 	if err != nil {
 		if os.IsExist(err) {
 			return fmt.Errorf("output %q already exists (use -force to overwrite)", path)
@@ -66,7 +77,7 @@ func writeExclusive(path string, data []byte, perm os.FileMode) error {
 // fsyncs the parent directory so the rename is durable across a crash.
 func writeAtomicReplace(path string, data []byte, perm os.FileMode) error {
 	dir := filepath.Dir(path)
-	tmp, err := os.CreateTemp(dir, ".tmp-*")
+	tmp, err := fsCreateTemp(dir, ".tmp-*")
 	if err != nil {
 		return fmt.Errorf("create temp file: %w", err)
 	}
@@ -87,7 +98,7 @@ func writeAtomicReplace(path string, data []byte, perm os.FileMode) error {
 	if err := tmp.Close(); err != nil {
 		return fmt.Errorf("close temp file: %w", err)
 	}
-	if err := os.Rename(tmpName, path); err != nil {
+	if err := fsRename(tmpName, path); err != nil {
 		return fmt.Errorf("rename temp file: %w", err)
 	}
 	return fsyncDir(dir)
@@ -98,16 +109,16 @@ func writeAtomicReplace(path string, data []byte, perm os.FileMode) error {
 // that do not support directory fsync (e.g. Windows), so those errors are
 // ignored there; on POSIX the sync error is returned.
 func fsyncDir(dir string) error {
-	d, err := os.Open(dir)
+	d, err := fsOpen(dir)
 	if err != nil {
-		if runtime.GOOS == "windows" {
+		if runtimeGOOS == "windows" {
 			return nil
 		}
 		return fmt.Errorf("open dir for fsync: %w", err)
 	}
 	if err := d.Sync(); err != nil {
 		_ = d.Close()
-		if runtime.GOOS == "windows" {
+		if runtimeGOOS == "windows" {
 			return nil
 		}
 		return fmt.Errorf("fsync dir: %w", err)

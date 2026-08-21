@@ -207,11 +207,19 @@ func DeriveRollbackKeyStrict(builtinSecret []byte, fingerprint string) ([]byte, 
 	return DeriveRollbackKey(builtinSecret, fingerprint), nil
 }
 
+// Filesystem seams: defaults are the real os.* implementations. Tests override
+// these to exercise the durability failure arms (temp-create/write/sync/rename)
+// that are otherwise unreachable on a healthy filesystem.
+var (
+	fsCreateTemp = os.CreateTemp
+	fsRename     = os.Rename
+)
+
 // atomicWriteFile writes data to a temp file in the same directory and renames
 // it over the target, giving an atomic replace on POSIX filesystems.
 func atomicWriteFile(path string, data []byte, perm os.FileMode) error {
 	dir := filepath.Dir(path)
-	tmp, err := os.CreateTemp(dir, ".tmp-*")
+	tmp, err := fsCreateTemp(dir, ".tmp-*")
 	if err != nil {
 		return newError(CodeStateIntegrityFailure, "create temp file", err)
 	}
@@ -232,7 +240,7 @@ func atomicWriteFile(path string, data []byte, perm os.FileMode) error {
 	if err := tmp.Close(); err != nil {
 		return newError(CodeStateIntegrityFailure, "close temp file", err)
 	}
-	if err := os.Rename(tmpName, path); err != nil {
+	if err := fsRename(tmpName, path); err != nil {
 		return newError(CodeStateIntegrityFailure, "rename temp file", err)
 	}
 	// fsync the parent directory so the rename is durable across a crash

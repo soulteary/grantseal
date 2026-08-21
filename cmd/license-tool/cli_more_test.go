@@ -484,3 +484,132 @@ func TestMarshalIndentEnvelopeError(t *testing.T) {
 		t.Fatal("expected error marshaling an unencodable value")
 	}
 }
+
+// --- inspect error branches --------------------------------------------------
+
+// A missing license file makes the initial os.ReadFile fail.
+func TestCmdInspectMissingLicenseFile(t *testing.T) {
+	dir, _, pubPath := newTestKeyPair(t, "k1")
+	if err := cmdInspect([]string{"-license", filepath.Join(dir, "no-license.json"), "-pubkey", pubPath}); err == nil {
+		t.Fatal("expected error for missing license file")
+	}
+}
+
+// A missing pubkey file makes readPublicKeyFile fail.
+func TestCmdInspectMissingPubkeyFile(t *testing.T) {
+	dir, privPath, _ := newTestKeyPair(t, "k1")
+	licPath := issueTestLicense(t, dir, "k1", privPath)
+	if err := cmdInspect([]string{"-license", licPath, "-pubkey", filepath.Join(dir, "no-pub.key")}); err == nil {
+		t.Fatal("expected error for missing pubkey file")
+	}
+}
+
+// With no -key-id, a malformed envelope makes key-id derivation (ParseEnvelope)
+// fail before the key ring is built.
+func TestCmdInspectBadEnvelopeForKeyID(t *testing.T) {
+	dir := t.TempDir()
+	_, _, pubPath := newTestKeyPair(t, "k1")
+	bad := filepath.Join(dir, "bad-license.json")
+	if err := os.WriteFile(bad, []byte("{not json"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := cmdInspect([]string{"-license", bad, "-pubkey", pubPath}); err == nil {
+		t.Fatal("expected error for malformed license envelope")
+	}
+}
+
+// An explicit -key-id that does not match the license's signing key makes the
+// manager's Inspect (signature verification) fail.
+func TestCmdInspectWrongKeyID(t *testing.T) {
+	dir, privPath, pubPath := newTestKeyPair(t, "k1")
+	licPath := issueTestLicense(t, dir, "k1", privPath)
+	if err := cmdInspect([]string{"-license", licPath, "-pubkey", pubPath, "-key-id", "wrong-id"}); err == nil {
+		t.Fatal("expected error when -key-id does not match the license")
+	}
+}
+
+// --- public-key error branch -------------------------------------------------
+
+// A missing private key file makes LoadPrivateKey fail.
+func TestCmdPublicKeyMissingKeyFile(t *testing.T) {
+	if err := cmdPublicKey([]string{"-key", filepath.Join(t.TempDir(), "no-such.key")}); err == nil {
+		t.Fatal("expected error for missing private key file")
+	}
+}
+
+// --- verify usage / missing-flag branches -----------------------------------
+
+// A missing -pubkey (only -license given) is a usage error.
+func TestCmdVerifyMissingPubkeyFlag(t *testing.T) {
+	dir, privPath, _ := newTestKeyPair(t, "k1")
+	licPath := issueTestLicense(t, dir, "k1", privPath)
+	if err := cmdVerify([]string{"-license", licPath}); err == nil {
+		t.Fatal("expected error when -pubkey missing")
+	}
+}
+
+// --- non-writable output directory branches ---------------------------------
+// These exercise the write-failure paths of writeFileNoClobber via each command
+// that persists a file to -out/-out-dir. We make a directory read+execute only
+// (0o500) inside t.TempDir() so file creation inside it fails with EACCES. Root
+// bypasses permission bits, so skip when running as uid 0.
+
+func requireUnwritableDir(t *testing.T) string {
+	t.Helper()
+	if os.Geteuid() == 0 {
+		t.Skip("running as root: permission bits are bypassed, cannot force a write failure")
+	}
+	dir := filepath.Join(t.TempDir(), "ro")
+	if err := os.Mkdir(dir, 0o500); err != nil {
+		t.Fatalf("mkdir ro: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(dir, 0o700) })
+	return dir
+}
+
+// keygen into a non-writable -out-dir must fail when WriteKeyFiles cannot create
+// the key files.
+func TestCmdKeygenUnwritableOutDir(t *testing.T) {
+	roDir := requireUnwritableDir(t)
+	if err := cmdKeygen([]string{"-key-id", "k1", "-out-dir", filepath.Join(roDir, "keys")}); err == nil {
+		t.Fatal("expected error writing keys into a non-writable directory")
+	}
+}
+
+// issue with -out inside a non-writable directory must surface the write error.
+func TestCmdIssueUnwritableOut(t *testing.T) {
+	dir, privPath, _ := newTestKeyPair(t, "k1")
+	cfgPath := writeIssueConfig(t, dir, "k1")
+	roDir := requireUnwritableDir(t)
+	out := filepath.Join(roDir, "license.json")
+	if _, err := captureStdout(t, func() error {
+		return cmdIssue([]string{"-config", cfgPath, "-key", privPath, "-out", out})
+	}); err == nil {
+		t.Fatal("expected error issuing into a non-writable directory")
+	}
+}
+
+// revoke-list with -out inside a non-writable directory must surface the write
+// error.
+func TestCmdRevokeListUnwritableOut(t *testing.T) {
+	_, privPath, _ := newTestKeyPair(t, "k1")
+	roDir := requireUnwritableDir(t)
+	out := filepath.Join(roDir, "revocation.json")
+	if _, err := captureStdout(t, func() error {
+		return cmdRevokeList([]string{
+			"-key", privPath, "-key-id", "k1", "-ids", "lic_a",
+			"-sequence", "1", "-ttl", "1h", "-out", out,
+		})
+	}); err == nil {
+		t.Fatal("expected error writing revocation list into a non-writable directory")
+	}
+}
+
+// --- fingerprint missing-namespace usage branch (explicit empty value) -------
+
+// An explicitly empty -namespace value is a usage error, same as omitting it.
+func TestCmdFingerprintEmptyNamespace(t *testing.T) {
+	if err := cmdFingerprint([]string{"-namespace", ""}); err == nil {
+		t.Fatal("expected error for empty -namespace")
+	}
+}

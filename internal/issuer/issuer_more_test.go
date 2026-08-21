@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
+	"strings"
 	"testing"
 	"time"
 
@@ -237,6 +239,220 @@ func TestBuildRevocationList(t *testing.T) {
 	}
 	if rp.IsRevoked("") {
 		t.Fatal("empty id should not be revoked")
+	}
+}
+
+// BuildPayload preserves explicit ids and normalises NotBefore/ExpiresAt to
+// UTC (exercising the utcPtr non-nil branch), and defaults DeviceBinding.Mode.
+func TestBuildPayloadExplicitAndTimePointers(t *testing.T) {
+	loc := time.FixedZone("UTC+8", 8*3600)
+	notBefore := time.Date(2030, 1, 2, 3, 4, 5, 0, loc)
+	expires := time.Date(2031, 6, 7, 8, 9, 10, 0, loc)
+	issued := time.Date(2029, 12, 31, 23, 0, 0, 0, loc)
+
+	p, err := issuer.BuildPayload(issuer.IssueRequest{
+		LicenseID:    "lic_explicit_id",
+		SerialNumber: "SER-EXPLICIT",
+		ProductID:    "p",
+		Edition:      license.EditionBasic,
+		LicenseType:  license.LicenseTypeSubscription,
+		IssuedAt:     &issued,
+		NotBefore:    &notBefore,
+		ExpiresAt:    &expires,
+	})
+	if err != nil {
+		t.Fatalf("BuildPayload: %v", err)
+	}
+	if p.LicenseID != "lic_explicit_id" || p.SerialNumber != "SER-EXPLICIT" {
+		t.Fatalf("explicit ids not preserved: id=%q serial=%q", p.LicenseID, p.SerialNumber)
+	}
+	if p.NotBefore == nil || p.ExpiresAt == nil {
+		t.Fatal("expected NotBefore and ExpiresAt to be set")
+	}
+	if p.NotBefore.Location() != time.UTC {
+		t.Fatalf("NotBefore not normalised to UTC: %v", p.NotBefore.Location())
+	}
+	if p.ExpiresAt.Location() != time.UTC {
+		t.Fatalf("ExpiresAt not normalised to UTC: %v", p.ExpiresAt.Location())
+	}
+	if !p.NotBefore.Equal(notBefore) || !p.ExpiresAt.Equal(expires) {
+		t.Fatal("time instants changed during UTC normalisation")
+	}
+	if !p.IssuedAt.Equal(issued) || p.IssuedAt.Location() != time.UTC {
+		t.Fatalf("IssuedAt not normalised: %v (%v)", p.IssuedAt, p.IssuedAt.Location())
+	}
+	if p.DeviceBinding.Mode != license.DeviceModeNone {
+		t.Fatalf("DeviceBinding.Mode default = %q, want none", p.DeviceBinding.Mode)
+	}
+	if p.SchemaVersion != license.SchemaVersion {
+		t.Fatalf("schema version = %d, want %d", p.SchemaVersion, license.SchemaVersion)
+	}
+}
+
+// BuildPayload generates well-formed random license_id (lic_ + 32 hex chars)
+// and serial (grouped uppercase, no ambiguous chars) when omitted, checking the
+// randomID/randomSerial length and format contracts.
+func TestBuildPayloadRandomIDAndSerialFormat(t *testing.T) {
+	p, err := issuer.BuildPayload(issuer.IssueRequest{
+		ProductID:     "p",
+		Edition:       license.EditionBasic,
+		LicenseType:   license.LicenseTypeLifetime,
+		DeviceBinding: license.DeviceBinding{Mode: license.DeviceModeNone},
+	})
+	if err != nil {
+		t.Fatalf("BuildPayload: %v", err)
+	}
+
+	if !strings.HasPrefix(p.LicenseID, "lic_") {
+		t.Fatalf("license_id missing lic_ prefix: %q", p.LicenseID)
+	}
+	hexPart := strings.TrimPrefix(p.LicenseID, "lic_")
+	if len(hexPart) != 32 { // 16 random bytes hex-encoded
+		t.Fatalf("license_id hex part length = %d, want 32 (%q)", len(hexPart), hexPart)
+	}
+	for _, c := range hexPart {
+		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')) {
+			t.Fatalf("license_id hex part contains non-hex char %q", c)
+		}
+	}
+
+	// randomSerial: 10 bytes -> 20 alphabet chars grouped in 4-char blocks with
+	// dashes: "AAAA-AAAA-AAAA-AAAA-AAAA" => 24 runes.
+	if got := len(p.SerialNumber); got != 24 {
+		t.Fatalf("serial length = %d, want 24 (%q)", got, p.SerialNumber)
+	}
+	const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+	for i, c := range p.SerialNumber {
+		if (i+1)%5 == 0 {
+			if c != '-' {
+				t.Fatalf("serial position %d = %q, want '-'", i, c)
+			}
+			continue
+		}
+		if !strings.ContainsRune(alphabet, c) {
+			t.Fatalf("serial contains char %q outside the safe alphabet", c)
+		}
+	}
+}
+
+// Issue propagates a validation error. randomID/randomSerial only fail if
+// crypto/rand fails (not deterministically triggerable), so we exercise the
+// error-propagation path via structural validation failure instead: a
+// device-bound license without any device_id is rejected, and Issue must
+// surface that error unchanged rather than returning an envelope.
+func TestIssuePropagatesValidationError(t *testing.T) {
+	kp, _ := issuer.GenerateKeyPair("k1")
+	signer, _ := issuer.NewSigner("k1", kp.PrivateKey)
+	env, err := issuer.Issue(signer, issuer.IssueRequest{
+		ProductID:   "p",
+		Edition:     license.EditionBasic,
+		LicenseType: license.LicenseTypeLifetime,
+		// Single device binding with no device_id fails static validation.
+		DeviceBinding: license.DeviceBinding{Mode: license.DeviceModeSingle},
+	})
+	if err == nil {
+		t.Fatal("expected error for device binding without any device_id")
+	}
+	if env != nil {
+		t.Fatalf("expected nil envelope on error, got %+v", env)
+	}
+	if !strings.Contains(err.Error(), "issuer: invalid license") {
+		t.Fatalf("error not wrapped by Issue: %v", err)
+	}
+}
+
+// LoadPrivateKey rejects a group-readable (0640) key file, covering the
+// permission-mask branch for group bits (the 0644 case is covered elsewhere).
+func TestLoadPrivateKeyRejectsGroupReadable(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Unix permission bits are not enforced on Windows")
+	}
+	dir := t.TempDir()
+	kp, _ := issuer.GenerateKeyPair("k1")
+	privPath, _, err := kp.WriteKeyFiles(dir, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(privPath, 0o640); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := issuer.LoadPrivateKey(privPath); err == nil {
+		t.Fatal("expected rejection of group-readable (0640) private key")
+	}
+}
+
+// WriteKeyFiles surfaces a write failure when the target directory is
+// read-only, exercising the writeKeyFileDurable O_EXCL create-failure branch.
+// Skipped when running as root, where directory mode is not enforced.
+func TestWriteKeyFilesReadOnlyDir(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("read-only directory semantics differ on Windows")
+	}
+	if os.Geteuid() == 0 {
+		t.Skip("root bypasses directory permission checks")
+	}
+	base := t.TempDir()
+	dir := filepath.Join(base, "ro")
+	if err := os.Mkdir(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(dir, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(dir, 0o700) })
+
+	kp, _ := issuer.GenerateKeyPair("k1")
+	if _, _, err := kp.WriteKeyFiles(dir, false); err == nil {
+		t.Fatal("expected write failure in a read-only directory (no force)")
+	}
+	if _, _, err := kp.WriteKeyFiles(dir, true); err == nil {
+		t.Fatal("expected write failure in a read-only directory (force)")
+	}
+}
+
+// LoadPrivateKey surfaces a read failure when the path is a directory, covering
+// the ReadFile error branch after the permission check passes.
+func TestLoadPrivateKeyReadFailure(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("directory permission semantics differ on Windows")
+	}
+	dir := t.TempDir()
+	sub := filepath.Join(dir, "keydir")
+	// 0700 dir passes the &0o077 permissive-mode check but cannot be ReadFile'd.
+	if err := os.Mkdir(sub, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := issuer.LoadPrivateKey(sub); err == nil {
+		t.Fatal("expected read error when private key path is a directory")
+	}
+}
+
+// WriteKeyFiles rolls back the already-written private key when the public-key
+// write fails, so a caller never observes a private key without its matching
+// public key. We force the public-key write to fail by pre-creating its path as
+// a directory (the no-force O_EXCL open then fails as "already exists").
+func TestWriteKeyFilesRollsBackOnPublicWriteFailure(t *testing.T) {
+	dir := t.TempDir()
+	kp, err := issuer.GenerateKeyPair("k1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The public key would be written to "<dir>/k1-public.key"; make that path a
+	// directory so the public-key write fails after the private key is written.
+	pubPath := filepath.Join(dir, "k1-public.key")
+	if err := os.Mkdir(pubPath, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	privPath, _, err := kp.WriteKeyFiles(dir, false)
+	if err == nil {
+		t.Fatal("expected public-key write failure")
+	}
+	if privPath != "" {
+		t.Fatalf("expected empty privPath on failure, got %q", privPath)
+	}
+	// The private key must have been rolled back (removed).
+	if _, statErr := os.Stat(filepath.Join(dir, "k1-private.key")); !os.IsNotExist(statErr) {
+		t.Fatalf("private key was not rolled back: stat err = %v", statErr)
 	}
 }
 

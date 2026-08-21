@@ -23,12 +23,24 @@ type KeyPair struct {
 	PrivateKey ed25519.PrivateKey
 }
 
+// Filesystem/randomness seams: defaults are the real implementations. Tests
+// override these to exercise the key-generation and durable-write failure arms
+// that a healthy environment never reaches.
+var (
+	edGenerateKey = ed25519.GenerateKey
+	fsOpenFile    = os.OpenFile
+	fsCreateTemp  = os.CreateTemp
+	fsRename      = os.Rename
+	fsOpen        = os.Open
+	runtimeGOOS   = runtime.GOOS
+)
+
 // GenerateKeyPair creates a new Ed25519 key pair using crypto/rand.
 func GenerateKeyPair(keyID string) (*KeyPair, error) {
 	if keyID == "" {
 		return nil, fmt.Errorf("issuer: key_id must not be empty")
 	}
-	pub, priv, err := ed25519.GenerateKey(rand.Reader)
+	pub, priv, err := edGenerateKey(rand.Reader)
 	if err != nil {
 		return nil, fmt.Errorf("issuer: generate key: %w", err)
 	}
@@ -89,7 +101,7 @@ func (kp *KeyPair) WriteKeyFiles(dir string, force bool) (privPath, pubPath stri
 // temp file + rename (without truncating the destination first).
 func writeKeyFileDurable(path string, data []byte, perm os.FileMode, force bool) error {
 	if !force {
-		f, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, perm)
+		f, err := fsOpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, perm)
 		if err != nil {
 			if os.IsExist(err) {
 				return fmt.Errorf("refusing to overwrite existing file %q (use force)", path)
@@ -113,7 +125,7 @@ func writeKeyFileDurable(path string, data []byte, perm os.FileMode, force bool)
 	}
 
 	dir := filepath.Dir(path)
-	tmp, err := os.CreateTemp(dir, ".tmp-key-*")
+	tmp, err := fsCreateTemp(dir, ".tmp-key-*")
 	if err != nil {
 		return err
 	}
@@ -134,7 +146,7 @@ func writeKeyFileDurable(path string, data []byte, perm os.FileMode, force bool)
 	if err := tmp.Close(); err != nil {
 		return err
 	}
-	if err := os.Rename(tmpName, path); err != nil {
+	if err := fsRename(tmpName, path); err != nil {
 		return err
 	}
 	return fsyncDirIssuer(dir)
@@ -143,16 +155,16 @@ func writeKeyFileDurable(path string, data []byte, perm os.FileMode, force bool)
 // fsyncDirIssuer fsyncs a directory so a create/rename entry survives a crash.
 // Directory fsync is not supported on Windows, so its errors are ignored there.
 func fsyncDirIssuer(dir string) error {
-	d, err := os.Open(dir)
+	d, err := fsOpen(dir)
 	if err != nil {
-		if runtime.GOOS == "windows" {
+		if runtimeGOOS == "windows" {
 			return nil
 		}
 		return err
 	}
 	if err := d.Sync(); err != nil {
 		_ = d.Close()
-		if runtime.GOOS == "windows" {
+		if runtimeGOOS == "windows" {
 			return nil
 		}
 		return err
