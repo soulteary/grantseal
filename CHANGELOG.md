@@ -18,15 +18,23 @@ below before upgrading.
 
 - **License payload schema v2.** The license payload `schema_version` is
   raised from `1` to **`2`**, paired with the new `grantseal/license/v2\x00`
-  signing domain. Legacy v1 licenses (`schema_version = 1`, signed under the
-  old `grantseal/license/v1\x00` domain) are now **explicitly rejected** with
-  `LICENSE_UNSUPPORTED_SCHEMA` rather than failing signature verification, so
-  the protocol boundary is machine-readable and mutually exclusive. **All
-  existing licenses must be re-issued** as v2.
+  signing domain. **v0.1.0 licenses can no longer be verified.** The prior
+  release (`schema_version = 1`) signed the canonical payload **directly, with
+  no signing-domain prefix**; the new verifier checks the signature over the
+  domain-separated input (`grantseal/license/v2\x00` + canonical) *before* it
+  inspects `schema_version`, so a genuine v0.1.0 license fails at signature
+  verification and is reported as **`LICENSE_SIGNATURE_INVALID`** (not
+  `LICENSE_UNSUPPORTED_SCHEMA`). `LICENSE_UNSUPPORTED_SCHEMA` is reserved for a
+  payload whose signature *does* verify under the v2 domain but whose
+  `schema_version` is not `2`. Both paths are fail-closed. **All existing
+  licenses must be re-issued** as v2.
 - **Signing domain separation.** License signatures are now computed over a
   domain-separated payload (`grantseal/license/v2\x00` prefix) and revocation
-  lists over `grantseal/revocation/v2\x00`. This binds a signature to its
-  intended context and prevents cross-protocol signature reuse.
+  lists over `grantseal/revocation/v2\x00`. Previously (v0.1.0) signatures
+  covered the canonical payload bytes directly, with no domain prefix; adding
+  the prefix binds a signature to its intended context and prevents
+  cross-protocol signature reuse (which is why pre-upgrade artifacts no longer
+  verify — see **Migration**).
 - **Revocation protocol v2 (replay-resistant).** Revocation lists carry
   `list_id`, `sequence`, `issued_at`, and `expires_at`, verified against an
   integrity-protected (HMAC) high-water-mark state so a client cannot be rolled
@@ -82,8 +90,12 @@ below before upgrading.
 - Fingerprint **v2**: per-platform primary identifier (Linux `machine-id`,
   macOS `platform_uuid`, Windows `MachineGuid`) with placeholder filtering; v1
   strict-all-components behavior is unchanged. `RequestCode` is tagged with the
-  version (`V1-`/`V2-`) and keyed fingerprints use an `hmac-sha256:` prefix.
-  `license-tool fingerprint` gains a `-v2` flag.
+  version (`V1-`/`V2-`), keyed fingerprints use an `hmac-sha256:` algorithm tag,
+  and every persisted fingerprint value now carries a versioned scheme prefix
+  `fp:v<N>:` (e.g. `fp:v1:sha256:<hex>`, `fp:v2:hmac-sha256:<hex>`) so a value
+  written into a license's `device_ids` records which fingerprint scheme
+  produced it and cannot be silently invalidated when the default scheme
+  evolves. `license-tool fingerprint` gains a `-v2` flag.
 - Repository governance: `.github/dependabot.yml` (weekly grouped Actions + Go
   toolchain updates), issue templates + `PULL_REQUEST_TEMPLATE.md`, and a
   `COMPATIBILITY.md` policy for the schema / error-code / CLI / Go API surfaces.
@@ -218,9 +230,14 @@ protocol upgrade** — they are not wire-compatible with pre-upgrade artifacts:
 - **Version constraints must be valid SemVer 2.0.** Previously tolerated
   malformed versions (e.g. two-part `1.2`, leading zeros) are now rejected;
   normalize your `version_constraint` values.
-- **Keyed fingerprint prefix changed** from `sha256:` to `hmac-sha256:`; update
-  any stored comparisons. Fingerprint v1 output is unchanged — adopt v2 only
-  when you want the per-platform primary identifier.
+- **Fingerprint value format changed.** Persisted fingerprint strings now carry
+  a versioned scheme prefix `fp:v<N>:` in front of the algorithm tag: the plain
+  digest is `fp:v1:sha256:<hex>` / `fp:v2:sha256:<hex>` and the keyed digest is
+  `fp:v1:hmac-sha256:<hex>` / `fp:v2:hmac-sha256:<hex>` (previously the value was
+  just `sha256:<hex>` with no version, and keyed v2 was `hmac-sha256:<hex>`).
+  Re-issue any device-bound licenses so their `device_ids` use the new
+  self-describing form, and update any stored comparisons; the plain-text
+  request codes (`V1-`/`V2-...`) are unchanged.
 
 ## [0.1.0] - 2026-08-21
 
@@ -234,7 +251,10 @@ written in Go 1.26 using **only the standard library**.
 - Ed25519-signed license issuing, verification, and management.
 - License wire format `Envelope{algorithm, key_id, payload, signature}` with a
   canonical (deterministic sorted-key) JSON payload. The on-disk license schema
-  is fixed at **`schema_version = 2`**; unknown versions are rejected.
+  is fixed at **`schema_version = 1`**; unknown versions are rejected. The
+  Ed25519 signature covers the canonical payload bytes **directly**, without a
+  signing-domain prefix. (Both are changed by the Unreleased protocol upgrade
+  above — schema `2` and a `grantseal/license/v2\x00` signing domain.)
 - `pkg/license`: client-side, fail-closed verification (public keys only, never
   contains private keys) with a read-only `ValidationResult` facade
   (`RequireFeature`, `CheckLimit`, `GetEdition`, `GetExpiration`,
@@ -258,9 +278,11 @@ written in Go 1.26 using **only the standard library**.
 
 ### Schema
 
-- `schema_version = 2` — the current and only accepted license schema version.
-  Any future breaking change to the payload layout will bump this value and be
-  recorded here.
+- `schema_version = 1` — the license schema version shipped in this release.
+  The signature covers the canonical payload bytes directly (no signing-domain
+  prefix). Any future breaking change to the payload layout bumps this value and
+  is recorded here (see the Unreleased entry, which raises it to `2` and adds
+  signing-domain separation).
 
 [Unreleased]: https://github.com/soulteary/grantseal/compare/v0.1.0...HEAD
 [0.1.0]: https://github.com/soulteary/grantseal/releases/tag/v0.1.0

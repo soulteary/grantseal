@@ -39,8 +39,8 @@ func TestComputeDeterministic(t *testing.T) {
 	if fp1.Fingerprint != fp2.Fingerprint {
 		t.Fatalf("fingerprints not deterministic: %q != %q", fp1.Fingerprint, fp2.Fingerprint)
 	}
-	if len(fp1.Fingerprint) < len("sha256:") || fp1.Fingerprint[:len("sha256:")] != "sha256:" {
-		t.Fatalf("fingerprint missing sha256: prefix: %q", fp1.Fingerprint)
+	if len(fp1.Fingerprint) < len("fp:v1:sha256:") || fp1.Fingerprint[:len("fp:v1:sha256:")] != "fp:v1:sha256:" {
+		t.Fatalf("fingerprint missing fp:v1:sha256: prefix: %q", fp1.Fingerprint)
 	}
 	if fp1.FingerprintVersion != FingerprintVersion {
 		t.Fatalf("unexpected version: %d", fp1.FingerprintVersion)

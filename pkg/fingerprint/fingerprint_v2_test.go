@@ -104,7 +104,7 @@ func TestCollectorAbstractionDrivesCompute(t *testing.T) {
 		if len(v1.ComponentsUsed) != 2 {
 			t.Fatalf("v1 should fold in all components, got %v", v1.ComponentsUsed)
 		}
-		if !strings.HasPrefix(v1.Fingerprint, "sha256:") {
+		if !strings.HasPrefix(v1.Fingerprint, "fp:v1:sha256:") {
 			t.Fatalf("v1 prefix, got %q", v1.Fingerprint)
 		}
 
@@ -157,8 +157,8 @@ func TestComputeV2Deterministic(t *testing.T) {
 	if fp1.FingerprintVersion != FingerprintVersionV2 {
 		t.Fatalf("expected v2 version tag, got %d", fp1.FingerprintVersion)
 	}
-	if !strings.HasPrefix(fp1.Fingerprint, "sha256:") {
-		t.Fatalf("expected sha256: prefix on plain v2 fingerprint, got %q", fp1.Fingerprint)
+	if !strings.HasPrefix(fp1.Fingerprint, "fp:v2:sha256:") {
+		t.Fatalf("expected fp:v2:sha256: prefix on plain v2 fingerprint, got %q", fp1.Fingerprint)
 	}
 }
 
@@ -170,8 +170,8 @@ func TestComputeHMACV2Prefix(t *testing.T) {
 		}
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !strings.HasPrefix(keyed.Fingerprint, "hmac-sha256:") {
-		t.Fatalf("expected hmac-sha256: prefix on keyed v2 fingerprint, got %q", keyed.Fingerprint)
+	if !strings.HasPrefix(keyed.Fingerprint, "fp:v2:hmac-sha256:") {
+		t.Fatalf("expected fp:v2:hmac-sha256: prefix on keyed v2 fingerprint, got %q", keyed.Fingerprint)
 	}
 }
 

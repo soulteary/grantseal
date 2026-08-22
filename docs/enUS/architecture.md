@@ -195,9 +195,14 @@ on them:
    prefix with the product namespace and a NUL separator, and join
    `category=value` lines with `\n`.
 4. **Hash**: SHA-256 by default, or HMAC-SHA256 when a key is supplied
-   (`ComputeHMAC`). The plain and v1 keyed outputs are prefixed `sha256:`; the
-   v2 keyed output (`ComputeHMACV2`) is prefixed `hmac-sha256:` so the scheme is
-   self-describing and the two cannot be confused.
+   (`ComputeHMAC`). The plain and keyed digests carry a `sha256:` /
+   `hmac-sha256:` algorithm tag, and the whole value is prefixed with a
+   versioned scheme tag `fp:v<N>:` (e.g. `fp:v1:sha256:<hex>`,
+   `fp:v2:hmac-sha256:<hex>`) so the value persisted into a license's
+   `device_ids` records exactly which fingerprint scheme produced it. This lets
+   the version-agnostic default (`ComputeDefault`) evolve without silently
+   invalidating already-issued device bindings, and keeps plain vs. keyed and v1
+   vs. v2 outputs mutually unambiguous.
 
 Properties and caveats:
 

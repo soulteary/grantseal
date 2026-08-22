@@ -14,8 +14,9 @@ type ValidationContext struct {
 	ProductID string
 	// ProductVersion, if non-empty, is checked against the version constraint.
 	ProductVersion string
-	// DeviceFingerprint is the current device fingerprint (e.g. "sha256:...").
-	// Required when the license binds to devices (mode != none).
+	// DeviceFingerprint is the current device fingerprint (e.g.
+	// "fp:v2:sha256:..."). Required when the license binds to devices
+	// (mode != none).
 	DeviceFingerprint string
 	// Revocation, if set, is consulted for license_id revocation.
 	Revocation RevocationProvider

@@ -183,7 +183,7 @@ assert_status_code "06-trial" "valid" "LICENSE_OK"
 
 # 07 device-single:匹配 → valid
 run_verify -license "$OUT_DIR/07-device-single.lic" -pubkey "$PUB" -product acme-app \
-  -device "sha256:demo-device-fingerprint-0007"
+  -device "fp:v2:sha256:demo-device-fingerprint-0007"
 assert_status_code "07-device-single (match)" "valid" "LICENSE_OK"
 
 # 07 device-single:不匹配 → LICENSE_DEVICE_MISMATCH

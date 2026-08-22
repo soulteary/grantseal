@@ -22,10 +22,19 @@ version for the module; a bump of any surface below is reflected there.
     (fail-closed, never silently downgraded).
   - Legacy v1 revocation lists are rejected **by default** and only accepted
     when the caller opts in with `AllowLegacyV1Revocation()`.
-  - Legacy **v1 license payloads** (`schema_version = 1`, signed under the
-    `grantseal/license/v1\x00` domain) are **no longer accepted**; they are
-    rejected as `LICENSE_UNSUPPORTED_SCHEMA`. This is a breaking change; see
-    `CHANGELOG.md` for the migration note (licenses must be re-issued as v2).
+  - Legacy **v0.1.0 license payloads** (`schema_version = 1`) are **no longer
+    accepted**. Note the *actual* rejection code: v0.1.0 signed the canonical
+    payload **directly, with no signing-domain prefix**, whereas the current
+    verifier checks the Ed25519 signature over the domain-separated input
+    (`grantseal/license/v2\x00` + canonical) *before* it parses the schema.
+    A real v0.1.0 license therefore fails at signature verification and is
+    rejected with **`LICENSE_SIGNATURE_INVALID`**, not
+    `LICENSE_UNSUPPORTED_SCHEMA`. (`LICENSE_UNSUPPORTED_SCHEMA` is what a
+    payload carrying `schema_version != 2` gets *if* its signature verifies
+    under the v2 domain — i.e. a v2-domain-signed payload with a mismatched
+    schema field, not a genuine v0.1.0 artifact.) Either way the outcome is
+    fail-closed; licenses must be re-issued as v2. See `CHANGELOG.md` for the
+    migration note.
   - Removing acceptance of an old schema version is a **breaking change**
     (major bump) and must ship a migration note here and in `CHANGELOG.md`.
 

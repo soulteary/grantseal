@@ -72,15 +72,15 @@ func TestComputeHMACV2Arms(t *testing.T) {
 		if err != nil {
 			t.Fatalf("keyed: %v", err)
 		}
-		if !strings.HasPrefix(keyed.Fingerprint, "hmac-sha256:") {
-			t.Fatalf("want hmac-sha256: prefix, got %q", keyed.Fingerprint)
+		if !strings.HasPrefix(keyed.Fingerprint, "fp:v2:hmac-sha256:") {
+			t.Fatalf("want fp:v2:hmac-sha256: prefix, got %q", keyed.Fingerprint)
 		}
 		plain, err := ComputeHMACV2("myapp", nil)
 		if err != nil {
 			t.Fatalf("plain: %v", err)
 		}
-		if !strings.HasPrefix(plain.Fingerprint, "sha256:") {
-			t.Fatalf("want sha256: prefix, got %q", plain.Fingerprint)
+		if !strings.HasPrefix(plain.Fingerprint, "fp:v2:sha256:") {
+			t.Fatalf("want fp:v2:sha256: prefix, got %q", plain.Fingerprint)
 		}
 	})
 	// Insufficient-info arm.

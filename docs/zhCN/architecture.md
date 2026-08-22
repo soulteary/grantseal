@@ -151,9 +151,12 @@ grantseal 清晰地划分为**签发端**（持有私钥）与**客户端**（�
 2. **归一化**每个值：trim、转小写、折叠内部空白。
 3. **规范化**：丢弃空值，按 `(category, value)` 确定性排序，前缀加产品命名空间与一个
    NUL 分隔符，再用 `\n` 连接 `category=value` 行。
-4. **散列**：默认 SHA-256；提供密钥时用 HMAC-SHA256（`ComputeHMAC`）。plain 与 v1
-   keyed 输出前缀为 `sha256:`；v2 keyed 输出（`ComputeHMACV2`）前缀为 `hmac-sha256:`，
-   使方案自描述且二者不会混淆。
+4. **散列**：默认 SHA-256；提供密钥时用 HMAC-SHA256（`ComputeHMAC`）。digest 带
+   `sha256:` / `hmac-sha256:` 算法标签，整个值再加上带版本的方案前缀 `fp:v<N>:`
+   （如 `fp:v1:sha256:<hex>`、`fp:v2:hmac-sha256:<hex>`），因此写入许可证
+   `device_ids` 的值自带其由哪一版指纹方案生成的信息。这样版本无关的默认入口
+   （`ComputeDefault`）可以继续演进而不会悄悄使已签发的设备绑定失配，同时 plain 与
+   keyed、v1 与 v2 输出互不混淆。
 
 属性与注意：
 

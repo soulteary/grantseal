@@ -49,6 +49,19 @@ const FingerprintVersionV2 = 2
 // specific version for callers that need a stable, versioned choice.
 const DefaultFingerprintVersion = FingerprintVersionV2
 
+// fingerprintPrefix returns the versioned, self-describing prefix embedded at
+// the front of every persisted fingerprint string, e.g. "fp:v2:". The scheme
+// version is encoded directly in the value that gets written into a license's
+// device_ids so a stored binding records exactly which fingerprint algorithm
+// produced it. This lets the version-agnostic default (ComputeDefault) keep
+// evolving without silently invalidating already-issued device bindings: a
+// license issued against a v1 or v2 fingerprint stays matchable because the
+// stored string carries its own version, rather than relying on whatever the
+// current default algorithm happens to be.
+func fingerprintPrefix(version int) string {
+	return fmt.Sprintf("fp:v%d:", version)
+}
+
 // Category constants identify the class of a hardware identifier. Only these
 // category names are ever exposed; the underlying raw values are kept private.
 const (
@@ -280,7 +293,9 @@ func ComputeHMACDefault(productNamespace string, hmacKey []byte) (Fingerprint, e
 
 // ComputeHMAC behaves like Compute but, when len(hmacKey) > 0, derives the
 // fingerprint using HMAC-SHA256 keyed with hmacKey. With an empty key it falls
-// back to plain SHA-256. The output prefix remains "sha256:".
+// back to plain SHA-256. The digest keeps the "sha256:" algorithm tag, and the
+// whole value is prefixed with the versioned scheme tag "fp:v1:", producing
+// e.g. "fp:v1:sha256:<hex>".
 func ComputeHMAC(productNamespace string, hmacKey []byte) (Fingerprint, error) {
 	if productNamespace == "" {
 		return Fingerprint{}, ErrEmptyNamespace
@@ -305,7 +320,7 @@ func ComputeHMAC(productNamespace string, hmacKey []byte) (Fingerprint, error) {
 	return Fingerprint{
 		FingerprintVersion: FingerprintVersion,
 		ProductNamespace:   productNamespace,
-		Fingerprint:        "sha256:" + hex.EncodeToString(sum),
+		Fingerprint:        fingerprintPrefix(FingerprintVersion) + "sha256:" + hex.EncodeToString(sum),
 		ComponentsUsed:     categories,
 	}, nil
 }
@@ -320,10 +335,12 @@ func ComputeV2(productNamespace string) (Fingerprint, error) {
 }
 
 // ComputeHMACV2 behaves like ComputeV2 but, when len(hmacKey) > 0, derives the
-// fingerprint using HMAC-SHA256 keyed with hmacKey. The output prefix is
-// "hmac-sha256:" when keyed and "sha256:" for the plain fallback. The digest is
-// computed over the canonical form of the single selected primary component, so
-// secondary identifiers appearing or disappearing does not change the result.
+// fingerprint using HMAC-SHA256 keyed with hmacKey. The algorithm tag is
+// "hmac-sha256:" when keyed and "sha256:" for the plain fallback, and the whole
+// value is prefixed with the versioned scheme tag "fp:v2:", producing e.g.
+// "fp:v2:sha256:<hex>" or "fp:v2:hmac-sha256:<hex>". The digest is computed over
+// the canonical form of the single selected primary component, so secondary
+// identifiers appearing or disappearing does not change the result.
 func ComputeHMACV2(productNamespace string, hmacKey []byte) (Fingerprint, error) {
 	if productNamespace == "" {
 		return Fingerprint{}, ErrEmptyNamespace
@@ -356,7 +373,7 @@ func ComputeHMACV2(productNamespace string, hmacKey []byte) (Fingerprint, error)
 	return Fingerprint{
 		FingerprintVersion: FingerprintVersionV2,
 		ProductNamespace:   productNamespace,
-		Fingerprint:        prefix + hex.EncodeToString(sum),
+		Fingerprint:        fingerprintPrefix(FingerprintVersionV2) + prefix + hex.EncodeToString(sum),
 		ComponentsUsed:     categories,
 	}, nil
 }
@@ -365,10 +382,7 @@ func ComputeHMACV2(productNamespace string, hmacKey []byte) (Fingerprint, error)
 // fingerprint's hex digest, tagging it with the fingerprint scheme version so
 // codes from v1 and v2 are visibly distinct (e.g. "V2-XXXX-XXXX-...").
 func requestCodeFromFingerprint(fp Fingerprint) string {
-	hexPart := fp.Fingerprint
-	for _, p := range []string{"hmac-sha256:", "sha256:"} {
-		hexPart = strings.TrimPrefix(hexPart, p)
-	}
+	hexPart := stripFingerprintPrefixes(fp.Fingerprint)
 	if len(hexPart) > 20 {
 		hexPart = hexPart[:20]
 	}
@@ -383,6 +397,22 @@ func requestCodeFromFingerprint(fp Fingerprint) string {
 		groups = append(groups, hexPart[i:end])
 	}
 	return strings.Join(groups, "-")
+}
+
+// stripFingerprintPrefixes removes the versioned scheme tag ("fp:v<N>:") and the
+// algorithm tag ("sha256:" / "hmac-sha256:") from a fingerprint string, leaving
+// just the hex digest. The version segment is skipped generically so any
+// "fp:v<N>:" (v1, v2, or a future scheme) is handled without a hard-coded list.
+func stripFingerprintPrefixes(s string) string {
+	if rest, ok := strings.CutPrefix(s, "fp:v"); ok {
+		if colon := strings.IndexByte(rest, ':'); colon >= 0 {
+			s = rest[colon+1:]
+		}
+	}
+	for _, p := range []string{"hmac-sha256:", "sha256:"} {
+		s = strings.TrimPrefix(s, p)
+	}
+	return s
 }
 
 // RequestCode computes the v1 fingerprint for productNamespace and returns a
