@@ -11,7 +11,7 @@ permissions:
 
 jobs:
   build-test:
-    name: build & test (${{ matrix.os }}, go ${{ matrix.go }})
+    name: build & test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     permissions:
       contents: read
@@ -19,15 +19,14 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
-        # Test the minimum supported and the current Go toolchain. Pin the
-        # patch-agnostic minor version and disable check-latest so the toolchain
-        # is reproducible rather than silently tracking the newest release.
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
 
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          # go-version: "${{ matrix.go }}"
+          # Single source of truth for the Go version is go.mod; check-latest is
+          # disabled so the toolchain is reproducible rather than tracking the
+          # newest release.
           go-version-file: 'go.mod'
           check-latest: false
 
@@ -137,8 +136,13 @@ jobs:
 
       # Scan the module (source + std lib) for known vulnerabilities. Installed
       # as a CI-only tool; it never enters the runtime go.mod dependency graph.
+      # Pin the CI tool to an explicit release tag rather than a floating latest
+      # so scans
+      # are reproducible and a new upstream release cannot silently change
+      # results. It stays a CI-only tool and never enters the runtime go.mod
+      # dependency graph.
       - name: install govulncheck
-        run: go install golang.org/x/vuln/cmd/govulncheck@latest
+        run: go install golang.org/x/vuln/cmd/govulncheck@v1.7.0
 
       - name: govulncheck ./...
         run: govulncheck ./...
@@ -156,6 +160,12 @@ jobs:
 
       - name: doc language (no unverifiable quality labels)
         run: bash scripts/check-doc-language.sh .
+
+      - name: doc consistency (no go-version matrix / stale code counts / drift)
+        run: bash scripts/check-doc-consistency.sh .
+
+      - name: doc-consistency gate self-test
+        run: bash scripts/check-doc-consistency-selftest.sh
 
       - name: sensitive files (no private keys in tree)
         # Full-tree audit; the script excludes the committed example keys/ dir
@@ -253,7 +263,9 @@ jobs:
       - name: goreleaser release --snapshot --clean
         uses: goreleaser/goreleaser-action@f06c13b6b1a9625abc9e6e439d9c05a8f2190e94 # v7.2.3
         with:
-          version: "~> v2"
+          # Pin the GoReleaser CLI to an explicit v2 tag instead of the floating
+          # "~> v2" constraint so snapshot builds are reproducible.
+          version: v2.17.1
           args: release --snapshot --clean
 
       - name: verify snapshot archive allowlist

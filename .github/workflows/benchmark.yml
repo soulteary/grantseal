@@ -1,0 +1,68 @@
+name: Benchmark
+
+# Benchmarks are evidence, not a gate. This workflow is manually triggered
+# (workflow_dispatch) plus an optional low-frequency schedule; it NEVER runs on
+# pull requests, so a performance change can never fail a normal PR. It records
+# a raw, reproducible benchmark run and uploads the full output as an artifact
+# together with the environment metadata needed to interpret it.
+on:
+  workflow_dispatch:
+  schedule:
+    # Weekly on Mondays at 04:23 UTC — an off-peak, non-round time. Low
+    # frequency because this is an evidence trail, not a per-change check.
+    - cron: "23 4 * * 1"
+
+permissions:
+  contents: read
+
+jobs:
+  benchmark:
+    name: run benchmarks (evidence, no gate)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          # Single source of truth for the Go version is go.mod; check-latest is
+          # disabled so the toolchain is reproducible. No matrix, no hardcoded
+          # version.
+          go-version-file: 'go.mod'
+          check-latest: false
+
+      - name: run benchmarks and capture raw output + metadata
+        run: |
+          set -euo pipefail
+          mkdir -p bench-results
+          meta="bench-results/metadata.txt"
+          out="bench-results/benchmark-output.txt"
+          {
+            echo "commit_sha: ${GITHUB_SHA}"
+            echo "runner_os: $(uname -s)"
+            echo "runner_arch: $(uname -m)"
+            echo "go_version: $(go version)"
+            echo "command: go test ./pkg/license ./pkg/fingerprint -run '^\$' -bench . -benchmem -count=5"
+            echo "started_at: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          } | tee "$meta"
+
+          start=$(date +%s)
+          # Tee the full stdout to the raw artifact while still surfacing it in
+          # the job log. No thresholds / gate: a regression here never fails.
+          go test ./pkg/license ./pkg/fingerprint \
+            -run '^$' -bench . -benchmem -count=5 2>&1 | tee "$out"
+          end=$(date +%s)
+
+          {
+            echo "finished_at: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            echo "duration_seconds: $((end - start))"
+          } | tee -a "$meta"
+
+      - name: upload raw benchmark results
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: benchmark-results-${{ github.run_id }}
+          path: bench-results/
+          if-no-files-found: error

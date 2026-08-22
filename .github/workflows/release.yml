@@ -51,8 +51,11 @@ jobs:
       - name: sensitive files
         run: bash scripts/check-sensitive-files.sh .
 
+      # Pinned to an explicit release tag (not a floating latest) so the
+      # pre-release scan
+      # is reproducible; CI-only tool, never in the runtime dependency graph.
       - name: install govulncheck
-        run: go install golang.org/x/vuln/cmd/govulncheck@latest
+        run: go install golang.org/x/vuln/cmd/govulncheck@v1.7.0
 
       - name: govulncheck ./...
         run: govulncheck ./...
@@ -98,7 +101,9 @@ jobs:
       - name: Run goreleaser
         uses: goreleaser/goreleaser-action@f06c13b6b1a9625abc9e6e439d9c05a8f2190e94 # v7.2.3
         with:
-          version: "~> v2"
+          # Pin the GoReleaser CLI to an explicit v2 tag instead of the floating
+          # "~> v2" constraint so the published release is reproducible.
+          version: v2.17.1
           args: release --clean
         env:
           # GITHUB_TOKEN is used to create the release and upload artifacts.
