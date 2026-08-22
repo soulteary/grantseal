@@ -238,11 +238,16 @@ jobs:
           # Snapshot the SHA-256 of every release asset built above. The publish
           # phase rebuilds deterministically and must reproduce these exact
           # checksums before anything is promoted (P1-3 / same-bytes guarantee).
+          #
+          # Write the snapshot OUTSIDE the git work tree ($RUNNER_TEMP). The
+          # publish phase re-runs `goreleaser release --clean`, which refuses to
+          # run if the work tree is dirty; a stray untracked file here (e.g.
+          # pre-publish.sha256) would trip that check and abort the release.
           ( cd dist && find . -maxdepth 1 -type f \
               \( -name '*.tar.gz' -o -name '*.zip' -o -name 'checksums.txt' \) \
-              -print0 | sort -z | xargs -0 sha256sum ) > pre-publish.sha256
+              -print0 | sort -z | xargs -0 sha256sum ) > "$RUNNER_TEMP/pre-publish.sha256"
           echo "pre-publish artifact hashes:"
-          cat pre-publish.sha256
+          cat "$RUNNER_TEMP/pre-publish.sha256"
 
       - name: verify release archive allowlist
         run: bash scripts/check-archive-allowlist.sh dist
@@ -350,7 +355,9 @@ jobs:
       - name: assert published bytes match verified bytes (SHA-256)
         run: |
           set -euo pipefail
-          sha256sum -c pre-publish.sha256
+          # The snapshot lists paths relative to dist/ (recorded from inside
+          # dist above), so verify from there against the out-of-tree snapshot.
+          ( cd dist && sha256sum -c "$RUNNER_TEMP/pre-publish.sha256" )
           echo "verified: published archives/checksums match the pre-publish hashes"
 
       # ---- ATTEST (build provenance / SLSA) ----------------------------------
