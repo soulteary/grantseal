@@ -94,9 +94,10 @@ grantseal 清晰地划分为**签发端**（持有私钥）与**客户端**（�
 13. 返回**只读** `ValidationResult`。
 
 回拨状态文件损坏时，按 `license_type` fail-closed：`trial`/`subscription` 直接拒绝
-（`LICENSE_STATE_INTEGRITY_FAILURE`），与时间无关的 `lifetime` 则容忍并重置状态。任一
-失败路径都返回稳定的 `LICENSE_*` 错误码；非法输入对受支持入口返回 error 而非 panic
-（CI 持续以 fuzz/race 验证）。
+（`LICENSE_STATE_INTEGRITY_FAILURE`），且损坏状态**绝不会被静默重置**。与时间无关的
+`lifetime` 许可**根本不参与防回拨**——不会为其读取、写入或重置状态文件——因此损坏状态
+永远不会拒绝 lifetime 许可（此为刻意设计）。任一失败路径都返回稳定的 `LICENSE_*`
+错误码；非法输入对受支持入口返回 error 而非 panic（CI 持续以 fuzz/race 验证）。
 
 ## 撤销与离线新鲜度
 
@@ -104,17 +105,28 @@ grantseal 清晰地划分为**签发端**（持有私钥）与**客户端**（�
   `KeyRing` 验证。其签名体内的 `key_id` 必须与信封 `key_id` 一致，schema 必须为 `2`
   （`RevocationSchemaVersion`），条目数受 `MaxRevokedIDs` 限制。
 - v2 列表在签名体内携带 `list_id`、单调递增的 `sequence`、`issued_at` 与 `expires_at`。
-  三个相互独立的属性分别强制：
-  1. **签名真实性** —— 列表确实来自签发方（对规范化字节做 Ed25519 签名）。
-  2. **分发新鲜度** —— `issued_at` 不得在未来（`LICENSE_REVOCATION_FROM_FUTURE`），
-     且列表不得超过 `expires_at` 或早于任意配置的 `MaxAge`
-     （`LICENSE_REVOCATION_EXPIRED`）。该行为由 `RevocationPolicy.RequireFresh` 控制，
-     默认值为 **true**；`RevocationPolicy.WithoutFreshness()` 是用于回放归档列表的
-     显式、审慎的关闭途径。
-  3. **本地防重放** —— 客户端按 `list_id` 持久化已接受的最高 `sequence` 作为高水位。
-     sequence 低于上次已接受值的列表会被拒绝（`LICENSE_REVOCATION_STALE`）；以相同
-     sequence 复用但内容不同者按回滚拒绝（`LICENSE_REVOCATION_ROLLBACK`）。若本地状态
-     文件被篡改，检查 fail-closed（`LICENSE_REVOCATION_STATE_INTEGRITY_FAILURE`）。
+  四个相互独立的属性按顺序分别强制：
+  1. **签名真实性** —— 列表确实来自签发方（对撤销签名域 + 规范化字节做 Ed25519 签名）。
+  2. **静态结构约束** —— 由 `validateRevocationV2Static` 在认证之后、任何时间相关检查
+     之前**无条件**强制，且不受 `WithoutFreshness` 放宽：`schema_version == 2`、`list_id`
+     非空、`sequence > 0`、`issued_at` 非零、`expires_at` 非 nil、`expires_at` 严格晚于
+     `issued_at`。任一违反返回 `LICENSE_MALFORMED`。因此即便离线回放归档列表，
+     `issued_at`/`expires_at` 的*存在与先后次序*也是硬性要求。
+  3. **分发新鲜度**（时间相关）—— `issued_at` 不得超出偏移地处于未来
+     （`LICENSE_REVOCATION_FROM_FUTURE`），且列表不得超过 `expires_at` 或早于任意配置的
+     `MaxAge`（`LICENSE_REVOCATION_EXPIRED`）。这是**唯一**由
+     `RevocationPolicy.RequireFresh`（默认 **true**）控制的层；
+     `RevocationPolicy.WithoutFreshness()` 是用于回放归档列表的显式、审慎的关闭途径，
+     且*只*放宽这一层。
+  4. **本地防重放** —— 客户端按 `list_id` 持久化已接受的最高 `sequence` 作为高水位，
+     且即便在 `WithoutFreshness` 下也会执行。sequence 低于上次已接受值的列表会被拒绝
+     （`LICENSE_REVOCATION_STALE`）；以相同 sequence 复用但内容不同者按回滚拒绝
+     （`LICENSE_REVOCATION_ROLLBACK`）。若本地状态文件被篡改，检查 fail-closed
+     （`LICENSE_REVOCATION_STATE_INTEGRITY_FAILURE`）。
+- **撤销状态为单进程写者。** `RevocationStateStore` 的并发保证仅在**单进程内**成立。
+  `FileRevocationStateStore` 通过包级按路径锁协调同一进程内共享同一路径的多个实例，但
+  **不获取操作系统级文件锁**，因此**不**能保护分处不同进程、写同一状态文件的并发写者。
+  请为撤销状态文件部署单一写者进程。
 - **默认拒绝 v1 旧列表。** v1 列表（无 sequence/expiry、无防重放）仅在调用方通过
   `RevocationPolicy.AllowLegacyV1Revocation()` 显式选择加入时才被接受（*构建*列表时对应
   `-v1` 标志）。以此保持默认 fail-closed。

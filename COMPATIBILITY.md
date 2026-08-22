@@ -33,14 +33,24 @@ version for the module; a bump of any surface below is reflected there.
   - Callers should branch on `license.Code` constants / the `LICENSE_*` string,
     never on the human-readable message text (which may change any time).
   - Renaming or repurposing an existing code is a **breaking change**.
+  - Adding a Go-identifier **alias** for an existing wire code is *not* a new
+    code and *not* a breaking change: e.g. `CodeFeatureDenied` is a Go alias that
+    resolves to the same wire string as `CodeFeatureUnavailable`
+    (`LICENSE_FEATURE_UNAVAILABLE`). There are **31** distinct wire codes
+    (`LICENSE_OK` plus 30 failure codes).
 
 ## 3. CLI · 命令行
 
 - Surface: `license-tool` subcommands, flags, exit codes, and stdout format.
 - Rules · 规则:
   - Existing subcommands and flags are additive-only within a major version.
-  - Exit codes are stable: `0` success, `1` runtime/verification failure, `2`
-    usage error.
+  - Exit codes are stable: `0` success (including `--help`/`-h`/`help` and a
+    per-command `-h`/`-help`); `2` usage errors (unknown command, flag-parse
+    failures, missing required flags, and malformed user input such as
+    duration/RFC3339/enum/bool/number); `1` runtime/domain errors (file I/O, key
+    loading, signing/verification failure, or a rejected license). Classification
+    is by error type (`flag.ErrHelp` / `*usageError`), not by matching message
+    strings.
   - Removing or repurposing a subcommand/flag, or changing an exit-code meaning,
     is a **breaking change**.
   - New flags default to preserving prior behavior.

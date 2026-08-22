@@ -4,11 +4,21 @@
 
 Related docs: [README](./README.md) · [architecture](./architecture.md) · [quality & coverage](./quality.md) · [security](../../SECURITY.md)
 
-> **Note.** All numbers below are backfilled by the benchmark workflow from a
-> specific commit and machine. Any `<!-- FILL: ... -->` marker or `TBD` is a
-> placeholder — do not treat placeholders as measured values. Benchmark results
-> reflect a single machine and are **not** a cross-device guarantee; CI runners
-> differ and do not enforce a strict performance threshold.
+> **Note.** The numbers below were recorded by hand from a benchmark run on the
+> specific commit and machine listed under **Environment of record**; they are
+> **not** automatically backfilled into this doc. The
+> [`.github/workflows/benchmark.yml`](../../.github/workflows/benchmark.yml)
+> workflow is manually triggered (`workflow_dispatch`) plus a low-frequency
+> weekly `schedule`, never runs on pull requests, sets **no** performance gate,
+> and does **not** write back to the default branch. It runs
+> `go test ... -bench . -benchmem -count=5` and uploads the full raw stdout plus
+> environment metadata (commit SHA, runner OS/arch, `go version`, the exact
+> command, and run duration) as a downloadable **artifact**; fetch it from the
+> workflow run's *Artifacts* section to obtain fresh evidence. Do not confuse
+> this with the `ci.yml` smoke benchmark (a `-benchtime=1x` build/execute check,
+> also not a gate). Benchmark results reflect a single machine and are **not** a
+> cross-device guarantee. Any `<!-- FILL: ... -->` marker or `TBD` is a
+> placeholder — do not treat placeholders as measured values.
 
 ## Environment of record
 

@@ -56,11 +56,14 @@ below before upgrading.
   toolchain updates), issue templates + `PULL_REQUEST_TEMPLATE.md`, and a
   `COMPATIBILITY.md` policy for the schema / error-code / CLI / Go API surfaces.
 - Supply-chain hardening in CI: all third-party Actions pinned to full commit
-  SHAs, per-job minimal `permissions`, `govulncheck`, a 4-target fuzz matrix
-  (plus a nightly longer campaign), a `goreleaser --snapshot` packaging check,
-  a release-time re-run of the full quality gate, and a release-archive
-  allowlist (`scripts/check-archive-allowlist.sh`). `cosign` signing / SBOM /
-  provenance are tracked as TODOs (they need keys/OIDC).
+  SHAs, per-job minimal `permissions`, `govulncheck` (pinned to `v1.7.0`), a
+  4-target fuzz matrix (plus a nightly longer campaign), a `goreleaser
+  --snapshot` packaging check (GoReleaser pinned to `v2.17.1`), a release-time
+  re-run of the full quality gate, and a release-archive allowlist
+  (`scripts/check-archive-allowlist.sh`). Full SBOM generation, `cosign`
+  keyless signing, and provenance attestation are **not yet implemented** and
+  remain tracked for the maintainer (they need repository OIDC configuration and
+  a real release run).
 - Single source of truth for quality metrics: `scripts/generate-quality-docs.sh`
   regenerates the coverage blocks of `docs/*/quality.md` from
   `.github/go-test-report.json`.
@@ -77,7 +80,9 @@ below before upgrading.
   allowlist.
 - Coverage figures are no longer hardcoded to `77.5%`/commit `e5c6e93` in the
   README/quality docs; they are published from `.github/go-test-report.json`
-  (currently 84.02% total, gate `>= 80%`).
+  (the value quoted here, ~84.02% total with an 80% gate, was the measurement at
+  the time of this changelog entry; the current measured total and gate are
+  generated into `docs/*/quality.md` from that JSON and may be higher).
 - CI coverage now uses the GTR (Go Test Report) Action
   (`soulteary/go-test-report-action`) instead of hand-rolled scripts. The
   `coverage` job runs tests once with the race detector over
@@ -200,8 +205,11 @@ written in Go 1.26 using **only the standard library**.
 - Policy features: device binding (`none`/`single`/`multi`), feature/limit
   gating, expiry with grace periods, clock-rollback detection, and signed
   revocation lists.
-- 23 stable `LICENSE_*` error codes (including the backward-compatible alias
-  `LICENSE_FEATURE_UNAVAILABLE`).
+- 31 stable `LICENSE_*` wire codes (`LICENSE_OK` plus 30 failure codes). The
+  feature-gate failure surfaces as `LICENSE_FEATURE_UNAVAILABLE`; in Go it is
+  reachable via both `CodeFeatureUnavailable` and its alias identifier
+  `CodeFeatureDenied`, which resolve to the same wire code (there is not a
+  separate `LICENSE_FEATURE_DENIED` wire string — that spelling is not emitted).
 - `examples/`: client integration sample and multi-scenario batch-issue configs
   with an assertion script.
 

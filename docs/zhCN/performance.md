@@ -4,9 +4,17 @@
 
 相关文档：[README](./README.md) · [架构](./architecture.md) · [质量与覆盖率](./quality.md) · [安全](../../SECURITY.md)
 
-> **说明。** 下方所有数字由 benchmark 工作流基于某个具体提交与机器回填。任何
-> `<!-- FILL: ... -->` 标记或 `TBD` 都是占位符——请勿把占位符当作实测值。benchmark 结果
-> 仅代表单台机器，**并非**跨设备保证；CI runner 各异，不强制严格的性能门禁。
+> **说明。** 下方数字是从 **记录环境** 一节所列的具体提交与机器上的一次 benchmark
+> 运行**手工记录**的，**并非**自动回填到本文档。
+> [`.github/workflows/benchmark.yml`](../../.github/workflows/benchmark.yml)
+> 工作流为手动触发（`workflow_dispatch`）加低频每周 `schedule`，从不在 pull request
+> 上运行，**不设**性能门禁，也**不**写回默认分支。它运行
+> `go test ... -bench . -benchmem -count=5`，并把完整原始 stdout 及环境元数据
+> （commit SHA、runner OS/arch、`go version`、确切命令、运行时长）作为可下载的
+> **artifact** 上传；从对应 workflow run 的 *Artifacts* 区下载即可获得最新证据。请勿
+> 与 `ci.yml` 的 smoke benchmark（`-benchtime=1x` 的构建/执行检查，同样不是门禁）混淆。
+> benchmark 结果仅代表单台机器，**并非**跨设备保证。任何 `<!-- FILL: ... -->` 标记或
+> `TBD` 都是占位符——请勿把占位符当作实测值。
 
 ## 记录环境
 

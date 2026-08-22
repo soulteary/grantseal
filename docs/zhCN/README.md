@@ -56,7 +56,8 @@ examples/          客户端集成 + 批量签发配置
 `ValidationResult`。
 
 回拨状态文件损坏时，按 `license_type` fail-closed：`trial`/`subscription` 直接
-拒绝（`LICENSE_STATE_INTEGRITY_FAILURE`），`lifetime`（与时间无关）则容忍并重置。
+拒绝（`LICENSE_STATE_INTEGRITY_FAILURE`），且损坏状态**绝不会被静默重置**；
+`lifetime`（与时间无关）根本不参与防回拨——不会为其读取、写入或重置状态文件。
 任一步失败均 **fail-closed**，返回稳定的 `LICENSE_*` 错误码；非法输入对受支持入口
 返回 error 而非 panic（CI 持续以 fuzz/race 验证）。
 
@@ -188,7 +189,8 @@ if err != nil {
 
 // 只读结果门面，用于功能/额度门禁：
 if err := res.RequireFeature("api"); err != nil {
-    // license.CodeOf(err) == license.CodeFeatureDenied（"LICENSE_FEATURE_DENIED"）
+    // license.CodeOf(err) == license.CodeFeatureUnavailable（"LICENSE_FEATURE_UNAVAILABLE"）
+    // （CodeFeatureDenied 是指向同一 wire code 的 Go 别名）
 }
 if err := res.CheckLimit("max_seats", seatsInUse); err != nil {
     // license.CodeOf(err) == license.CodeLimitExceeded（"LICENSE_LIMIT_EXCEEDED"）
@@ -211,21 +213,32 @@ _ = res.DeviceMatched()     // 设备绑定是否满足
 
 `ValidationResult` 为只读，推荐使用门面方法而非直接读取字段：
 
-- `RequireFeature(name) error`：功能未授予返回 `CodeFeatureDenied`（`LICENSE_FEATURE_DENIED`）。
+- `RequireFeature(name) error`：功能未授予返回 `CodeFeatureUnavailable`（稳定 wire code 为 `LICENSE_FEATURE_UNAVAILABLE`）；`CodeFeatureDenied` 是指向同一 wire code 的 Go 别名（见下方说明）。
 - `CheckLimit(key, current) error`：超限返回 `CodeLimitExceeded`（`LICENSE_LIMIT_EXCEEDED`）；未声明的 key 视为**无限制**。
 - `RequireLimit(key, current) error`：`CheckLimit` 的 fail-closed 版本——未声明的 key 返回 `CodeLimitRequired`（`LICENSE_LIMIT_REQUIRED`），`current` 为负返回 `CodeInvalidLimits`，超限返回 `CodeLimitExceeded`。`CheckLimitStrict(key, current)` 语义相同但不含空 key / 负 `current` 保护。
 - `GetLimit`、`GetEdition`、`GetExpiration`、`GetRemainingDays`（永久返回 `-1`）、`RemainingTime`、`KeyID`、`DeviceMatched`。
 
 `Manager` 会缓存最近一次成功的结果：用 `Manager.CachedResult()` 免验签查询，用 `Manager.InvalidateCache()` 清除；`Manager.GetDeviceRequestCode(ns)` 委托 `pkg/fingerprint` 生成申请码。
 
-> 说明：`CodeFeatureDenied` 取代旧的 `LICENSE_FEATURE_UNAVAILABLE`，旧常量 `CodeFeatureUnavailable` 作为向后兼容别名保留。
+> **`CachedResult` 不是授权判定依据。** 它仅用于历史展示、诊断与非安全 UI。缓存在每次
+> `Validate`/`LoadAndValidate` 入口即被清空，且在受信时钟出错时 fail-closed（返回
+> `(ValidationResult{}, false)`，不回退墙钟）。任何当前授权判定都必须重新运行
+> `Validate`/`LoadAndValidate`，绝不能以缓存结果作为放行依据。
+
+> **功能门禁错误码说明：** `RequireFeature` 发出的稳定 wire code 是
+> `LICENSE_FEATURE_UNAVAILABLE`。Go 源码暴露 `CodeFeatureUnavailable` 与其别名
+> `CodeFeatureDenied` 两个标识符，二者指向**同一** wire 字符串——别名仅为让既有调用方
+> 继续编译而保留。新的 Go 名不等于新的 wire code；不存在 `LICENSE_FEATURE_DENIED`
+> 这个 wire 字符串。
 
 ## 错误码
 
 每条失败路径都会返回稳定、机器可读的 `LICENSE_*` 错误码（见
 [`../../pkg/license/errors.go`](../../pkg/license/errors.go)）。这些字符串是公开
 契约的一部分，可安全用于 UX 分支判断；用 `license.CodeOf(err)` 提取。完整清单
-（共 23 个）：
+共 **31 个 wire code**（`LICENSE_OK` 加 30 个失败码）。注意
+`LICENSE_FEATURE_UNAVAILABLE` 在 Go 中以两个标识符（`CodeFeatureUnavailable`
+及其别名 `CodeFeatureDenied`）暴露，但仍是同一个 wire code：
 
 - **`LICENSE_OK`** —— 校验通过。*触发：* 有效且在有效期内的许可。*UX：* 放行，可
   额外展示剩余天数 / 版本。
@@ -265,20 +278,41 @@ _ = res.DeviceMatched()     // 设备绑定是否满足
   台机器。*UX：* 展示设备申请码，请用户重新绑定。
 - **`LICENSE_PRODUCT_MISMATCH`** —— payload 的 `product_id` 与调用方产品不符。
   *触发：* 用于其他产品的许可。*UX：* 判为无效。
+- **`LICENSE_PRODUCT_REQUIRED`** —— 校验未限定产品（`ProductID` 为空）且 `Manager`
+  未配置 `WithUnscopedProductValidation`。*触发：* 忘记传入产品。*UX：* fail-closed，
+  否则可能放行为其他产品签发的许可。
+- **`LICENSE_NON_CANONICAL_PAYLOAD`** —— 已签名 payload 携带的字节不是该 payload 的
+  规范化编码。*触发：* 被重新编码/篡改的字节。*UX：* 即便签名可验证也判为无效。
 - **`LICENSE_VERSION_UNSUPPORTED`** —— 运行版本超出覆盖范围，或存在版本约束却未
   传入/无法解析运行版本。*触发：* 升级超出维护/覆盖窗口。*UX：* 提示购买升级或
   运行受覆盖的版本。
-- **`LICENSE_FEATURE_DENIED`** —— 所需功能未授予（由 `RequireFeature` 返回）。
-  *触发：* 门禁了许可未包含的功能。*UX：* 针对该功能进行升级/增购提示。
+- **`LICENSE_FEATURE_UNAVAILABLE`** —— 所需功能未授予（由 `RequireFeature` 返回，
+  无论功能缺失、不足还是结果无效）。*触发：* 门禁了许可未包含的功能。*UX：* 针对该
+  功能进行升级/增购提示。
 - **`LICENSE_LIMIT_EXCEEDED`** —— 用量计数超过声明的额度（由 `CheckLimit` 返回）。
   *触发：* 如席位数超过 `max_seats`。*UX：* 展示额度并引导升级。
 - **`LICENSE_STATE_INTEGRITY_FAILURE`** —— 防回拨状态文件损坏且策略 fail-closed。
   *触发：* `trial`/`subscription` 许可的状态被篡改/损坏。*UX：* 判为无效，可能需要
   重新激活。
+- **`LICENSE_LIMIT_REQUIRED`** —— 严格额度检查（`RequireLimit` / `CheckLimitStrict`）
+  查询了许可未声明的额度 key。*触发：* key 拼写错误或遗漏。*UX：* fail-closed，避免
+  未声明额度被静默视为无限制。
+- **`LICENSE_REVOCATION_STALE`** —— 已正确签名的撤销列表其 sequence 低于本地高水位
+  状态（旧列表被重放）。*触发：* 重放旧撤销列表。*UX：* 保留更新的已知状态，拒绝旧
+  列表。
+- **`LICENSE_REVOCATION_FROM_FUTURE`** —— 撤销列表的 `issued_at` 超出容忍时钟偏移
+  地处于未来。*触发：* 时钟错误或伪造的未来列表。*UX：* 拒绝该列表。
+- **`LICENSE_REVOCATION_EXPIRED`** —— 撤销列表的 `expires_at` 已过去（超出容忍偏移）：
+  分发过旧不可信。*触发：* 发布的列表已过期。*UX：* 拉取新列表。
+- **`LICENSE_REVOCATION_ROLLBACK`** —— 撤销列表复用了此前见过的 sequence 却携带不同的
+  payload 摘要。*触发：* 在已接受的 sequence 上替换内容。*UX：* 拒绝，本地状态不变。
+- **`LICENSE_REVOCATION_STATE_INTEGRITY_FAILURE`** —— 本地撤销高水位状态存储损坏或
+  未通过 HMAC 校验。*触发：* 撤销状态被篡改/损坏。*UX：* fail-closed，不覆盖状态。
 
-> **向后兼容别名：** `LICENSE_FEATURE_UNAVAILABLE` 是 `LICENSE_FEATURE_DENIED` 的
-> 旧写法，仅为避免比较旧字符串的调用方失效而保留；新代码应发出
-> `LICENSE_FEATURE_DENIED`。
+> **向后兼容别名：** `CodeFeatureDenied` 是 `CodeFeatureUnavailable` 的 Go 标识符
+> 别名，二者都指向唯一稳定 wire code `LICENSE_FEATURE_UNAVAILABLE`。别名仅为让引用
+> `CodeFeatureDenied` 标识符的既有调用方继续编译而保留——它**不是**独立的错误码，
+> 也不存在 `LICENSE_FEATURE_DENIED` 这个 wire 字符串。
 
 ## 在线激活（后续扩展 / 路线图）
 

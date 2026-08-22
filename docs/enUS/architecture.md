@@ -114,10 +114,13 @@ fixed, security-motivated order:
 
 If the anti-rollback state file is corrupt, the policy is fail-closed by
 `license_type`: `trial`/`subscription` are rejected
-(`LICENSE_STATE_INTEGRITY_FAILURE`), while a time-independent `lifetime` license
-is tolerated and the state is reset. Every failure path returns a stable
-`LICENSE_*` code; malformed input returns an error on every supported entry
-point instead of panicking (continuously fuzz/race verified in CI).
+(`LICENSE_STATE_INTEGRITY_FAILURE`) and the corrupt state is **never silently
+reset**. A time-independent `lifetime` license does **not** participate in
+anti-rollback at all — the state file is neither read, written, nor reset for
+it — so a corrupt state can never deny a lifetime license (by design). Every
+failure path returns a stable `LICENSE_*` code; malformed input returns an error
+on every supported entry point instead of panicking (continuously fuzz/race
+verified in CI).
 
 ## Revocation & offline freshness
 
@@ -127,23 +130,39 @@ point instead of panicking (continuously fuzz/race verified in CI).
   must be `2` (`RevocationSchemaVersion`), and the entry count is capped at
   `MaxRevokedIDs`.
 - The v2 list carries `list_id`, a monotonically increasing `sequence`,
-  `issued_at`, and `expires_at` inside the signed body. Three distinct
-  properties are enforced independently:
+  `issued_at`, and `expires_at` inside the signed body. Four distinct
+  properties are enforced independently, in order:
   1. **Signature authenticity** — the list is really from the issuer (Ed25519
-     over canonical bytes).
-  2. **Distribution freshness** — `issued_at` must not be in the future
-     (`LICENSE_REVOCATION_FROM_FUTURE`) and the list must not be past
-     `expires_at` / older than any configured `MaxAge`
-     (`LICENSE_REVOCATION_EXPIRED`). This is governed by
-     `RevocationPolicy.RequireFresh`, which defaults to **true**;
+     over the revocation signing domain + canonical bytes).
+  2. **Static structural invariants** — enforced **unconditionally** by
+     `validateRevocationV2Static` after authentication and before any
+     time-relative check, and NOT relaxed by `WithoutFreshness`:
+     `schema_version == 2`, non-empty `list_id`, `sequence > 0`, non-zero
+     `issued_at`, non-nil `expires_at`, and `expires_at` strictly after
+     `issued_at`. Any violation is `LICENSE_MALFORMED`. So the *presence and
+     ordering* of `issued_at`/`expires_at` is a hard requirement even for an
+     offline archived replay.
+  3. **Distribution freshness** (time-relative) — `issued_at` must not be in the
+     future beyond skew (`LICENSE_REVOCATION_FROM_FUTURE`) and the list must not
+     be past `expires_at` / older than any configured `MaxAge`
+     (`LICENSE_REVOCATION_EXPIRED`). This is the ONLY layer governed by
+     `RevocationPolicy.RequireFresh` (defaults to **true**);
      `RevocationPolicy.WithoutFreshness()` is the explicit, deliberate opt-out
-     for replaying an archived list.
-  3. **Local anti-replay** — the client persists the highest accepted `sequence`
-     per `list_id` as a high-water mark. A list whose sequence is lower than the
-     last accepted one is rejected (`LICENSE_REVOCATION_STALE`); reusing a
-     sequence with different content is rejected as a rollback
+     for replaying an archived list and relaxes *only* this layer.
+  4. **Local anti-replay** — the client persists the highest accepted `sequence`
+     per `list_id` as a high-water mark, and this runs even under
+     `WithoutFreshness`. A list whose sequence is lower than the last accepted
+     one is rejected (`LICENSE_REVOCATION_STALE`); reusing a sequence with
+     different content is rejected as a rollback
      (`LICENSE_REVOCATION_ROLLBACK`). If the local state file is tampered with,
      the check fails closed (`LICENSE_REVOCATION_STATE_INTEGRITY_FAILURE`).
+- **Single-process writer for revocation state.** The
+  `RevocationStateStore` concurrency guarantees hold **within a single
+  process**. `FileRevocationStateStore` coordinates multiple in-process
+  instances that share a path via a package-level per-path lock, but it takes
+  **no OS-level file lock**, so it is **not** safe against concurrent writers in
+  separate processes writing the same state file. Deploy a single writer process
+  for the revocation state file.
 - **Legacy v1 lists are rejected by default.** A v1 list (no
   sequence/expiry, no replay resistance) is only accepted when the caller
   explicitly opts in via `RevocationPolicy.AllowLegacyV1Revocation()` (or the

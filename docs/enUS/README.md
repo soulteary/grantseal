@@ -212,7 +212,8 @@ if err != nil {
 
 // Read-only result facade for gating:
 if err := res.RequireFeature("api"); err != nil {
-    // license.CodeOf(err) == license.CodeFeatureDenied ("LICENSE_FEATURE_DENIED")
+    // license.CodeOf(err) == license.CodeFeatureUnavailable ("LICENSE_FEATURE_UNAVAILABLE")
+    // (CodeFeatureDenied is a Go alias resolving to the same wire code)
 }
 if err := res.CheckLimit("max_seats", seatsInUse); err != nil {
     // license.CodeOf(err) == license.CodeLimitExceeded ("LICENSE_LIMIT_EXCEEDED")
@@ -236,8 +237,10 @@ _ = res.DeviceMatched()     // device binding satisfied?
 `ValidationResult` is read-only. Prefer the facade helpers over inspecting raw
 fields:
 
-- `RequireFeature(name) error` — returns `CodeFeatureDenied`
-  (`LICENSE_FEATURE_DENIED`) when a feature is not granted.
+- `RequireFeature(name) error` — returns `CodeFeatureUnavailable`
+  (wire code `LICENSE_FEATURE_UNAVAILABLE`) when a feature is not granted.
+  `CodeFeatureDenied` is a Go-identifier alias that resolves to the *same*
+  wire code (see the note below).
 - `CheckLimit(key, current) error` — returns `CodeLimitExceeded`
   (`LICENSE_LIMIT_EXCEEDED`) when exceeded. A key that the license does not
   declare is treated as **unlimited**.
@@ -254,9 +257,19 @@ fields:
 `Manager.InvalidateCache()` to clear it. `Manager.GetDeviceRequestCode(ns)`
 delegates to `pkg/fingerprint` for an activation/request code.
 
-> Note: `CodeFeatureDenied` replaces the older
-> `LICENSE_FEATURE_UNAVAILABLE`. The `CodeFeatureUnavailable` constant is
-> retained as a backward-compatible alias.
+> **`CachedResult` is not an authorization decision.** It exists only for
+> history display, diagnostics, and non-security UI. The cache is cleared at the
+> start of every `Validate`/`LoadAndValidate` and is fail-closed when the
+> trusted clock errors (it returns `(ValidationResult{}, false)` rather than
+> falling back to the wall clock). Any current authorization decision MUST
+> re-run `Validate`/`LoadAndValidate`; never gate access on a cached result.
+
+> **Feature-gate error code.** The stable wire code emitted by `RequireFeature`
+> is `LICENSE_FEATURE_UNAVAILABLE`. The Go source exposes two identifiers,
+> `CodeFeatureUnavailable` and its alias `CodeFeatureDenied`, which both resolve
+> to that *same* wire string — the alias exists only so existing callers keep
+> compiling. A new Go name does not mean a new wire code, and there is not a
+> `LICENSE_FEATURE_DENIED` wire string (that spelling is not emitted).
 
 
 See [`../../examples/client/main.go`](../../examples/client/main.go).
@@ -266,7 +279,10 @@ See [`../../examples/client/main.go`](../../examples/client/main.go).
 Every failure path returns a stable, machine-readable `LICENSE_*` code (see
 [`../../pkg/license/errors.go`](../../pkg/license/errors.go)). These strings are
 part of the public contract and are safe to switch on for UX. Use
-`license.CodeOf(err)` to extract one. The full set (23 codes):
+`license.CodeOf(err)` to extract one. The full set is **31 distinct wire codes**
+(`LICENSE_OK` plus 30 failure codes). Note that `LICENSE_FEATURE_UNAVAILABLE` is
+surfaced in Go under two identifiers (`CodeFeatureUnavailable` and its alias
+`CodeFeatureDenied`) but is a single wire code:
 
 - **`LICENSE_OK`** — Validation succeeded. *Trigger:* a valid, in-window license.
   *UX:* proceed; optionally surface remaining days / edition.
@@ -317,12 +333,21 @@ part of the public contract and are safe to switch on for UX. Use
   and ask the user to re-bind.
 - **`LICENSE_PRODUCT_MISMATCH`** — Payload `product_id` differs from the caller's
   product. *Trigger:* license for a different product. *UX:* reject as invalid.
+- **`LICENSE_PRODUCT_REQUIRED`** — Validation was not scoped to a product (empty
+  `ProductID`) and the `Manager` was not configured with
+  `WithUnscopedProductValidation`. *Trigger:* forgetting to pass a product.
+  *UX:* fail-closed; a license issued for another product could otherwise be
+  authorized.
+- **`LICENSE_NON_CANONICAL_PAYLOAD`** — A signed payload's carried bytes are not
+  the canonical encoding of the payload. *Trigger:* re-encoded/tampered bytes.
+  *UX:* reject as invalid even if the signature would verify.
 - **`LICENSE_VERSION_UNSUPPORTED`** — The running version is out of the covered
   range, or no/unparseable version was supplied while a constraint exists.
   *Trigger:* upgrade beyond the maintenance/covered window. *UX:* prompt to
   purchase an upgrade or run a covered version.
-- **`LICENSE_FEATURE_DENIED`** — A required feature is not granted (returned by
-  `RequireFeature`). *Trigger:* gating a feature not in the license. *UX:*
+- **`LICENSE_FEATURE_UNAVAILABLE`** — A required feature is not granted (returned
+  by `RequireFeature`, whether the feature is absent, insufficient, or the result
+  is not valid). *Trigger:* gating a feature not in the license. *UX:*
   upsell/upgrade prompt for that feature.
 - **`LICENSE_LIMIT_EXCEEDED`** — A usage counter exceeds its declared limit
   (returned by `CheckLimit`). *Trigger:* e.g. seats over `max_seats`. *UX:* show
@@ -330,11 +355,34 @@ part of the public contract and are safe to switch on for UX. Use
 - **`LICENSE_STATE_INTEGRITY_FAILURE`** — The anti-rollback state file is corrupt
   and the policy is fail-closed. *Trigger:* tampered/corrupt state for a
   `trial`/`subscription` license. *UX:* reject; may require re-activation.
+- **`LICENSE_LIMIT_REQUIRED`** — A strict limit check (`RequireLimit` /
+  `CheckLimitStrict`) queried a limit key the license does not declare. *Trigger:*
+  a typo'd or forgotten limit key. *UX:* fail-closed so an undeclared limit is
+  not silently unlimited.
+- **`LICENSE_REVOCATION_STALE`** — A validly-signed revocation list has a lower
+  sequence than the local high-water state (an old list is being replayed).
+  *Trigger:* replay of an older revocation list. *UX:* keep the newer known
+  state; reject the stale list.
+- **`LICENSE_REVOCATION_FROM_FUTURE`** — A revocation list's `issued_at` is
+  further in the future than the tolerated clock skew. *Trigger:* wrong clock or
+  forged future list. *UX:* reject the list.
+- **`LICENSE_REVOCATION_EXPIRED`** — A revocation list's `expires_at` is in the
+  past (beyond tolerated skew): the distribution is too old to trust. *Trigger:*
+  a stale published list. *UX:* fetch a fresh list.
+- **`LICENSE_REVOCATION_ROLLBACK`** — A revocation list reuses a previously seen
+  sequence but carries a different payload digest. *Trigger:* content
+  substitution at an already-accepted sequence. *UX:* reject; the local state is
+  unchanged.
+- **`LICENSE_REVOCATION_STATE_INTEGRITY_FAILURE`** — The local revocation
+  high-water state store is corrupt or fails its HMAC check. *Trigger:*
+  tampered/corrupt revocation state. *UX:* fail-closed; the state is not
+  overwritten.
 
-> **Backward-compat alias:** `LICENSE_FEATURE_UNAVAILABLE` is the older spelling
-> of `LICENSE_FEATURE_DENIED`. It is retained only so existing callers that
-> compared against the old string do not break; new code should emit
-> `LICENSE_FEATURE_DENIED`.
+> **Backward-compat alias:** `CodeFeatureDenied` is a Go-identifier alias for
+> `CodeFeatureUnavailable`; both resolve to the single stable wire code
+> `LICENSE_FEATURE_UNAVAILABLE`. The alias is retained only so existing callers
+> that reference the `CodeFeatureDenied` identifier keep compiling — it is **not**
+> a distinct error code, and there is no `LICENSE_FEATURE_DENIED` wire string.
 
 ## Online activation (future / Roadmap)
 

@@ -105,9 +105,38 @@ Individual licenses are revoked with a **signed** revocation list
 an offline deployment the client only enforces the revocation list it currently
 holds; it cannot learn about newer revocations without a fresh, signed list. To
 tighten freshness, distribute updated revocation lists over a signed OTA channel
-and/or add online revocation checks for high-value assets. The `issued_at` field
-on a revocation list lets you reason about how stale a client's copy may be, but
-it is **not** an automatic freshness enforcement mechanism today (Roadmap).
+and/or add online revocation checks for high-value assets.
+
+A verified v2 list passes through four distinct layers, in this order:
+
+1. **Signature authenticity** — Ed25519 over the revocation signing domain plus
+   canonical-bytes equality; a bad signature/key is rejected before anything
+   else.
+2. **Static structural invariants** (`validateRevocationV2Static`) — enforced
+   **unconditionally**, regardless of freshness: `schema_version == 2`, non-empty
+   `list_id`, `sequence > 0`, non-zero `issued_at`, non-nil `expires_at`, and
+   `expires_at` strictly after `issued_at`. Violations return `LICENSE_MALFORMED`.
+   So `issued_at` being *present and non-zero* is now structurally required for
+   every v2 list, even for a deliberate offline replay.
+3. **Freshness** (time-relative) — `issued_at` not in the future beyond skew,
+   `now` not past `expires_at + skew`, and the optional `MaxAge` bound. This is
+   the only layer relaxed by `WithoutFreshness` (used for deliberate offline
+   replay of an archived list); it does **not** relax signature authenticity,
+   strict/canonical parsing, the static structural invariants, or anti-replay.
+4. **Anti-replay** (local high-water mark) — when a `StateStore` is configured,
+   a lower sequence is rejected (`LICENSE_REVOCATION_STALE`) and a reused
+   sequence with different content is rejected (`LICENSE_REVOCATION_ROLLBACK`);
+   this runs even under `WithoutFreshness`. This state store is a
+   **single-process writer**: `FileRevocationStateStore` coordinates in-process
+   instances via a per-path lock but takes **no OS-level file lock**, so it is
+   not safe against concurrent writers in separate processes — deploy a single
+   writer process for the state file.
+
+The `issued_at`/`expires_at` fields therefore serve two roles: their *presence
+and ordering* is a hard structural requirement (layer 2), while their comparison
+against the current clock is the relaxable freshness window (layer 3). There is
+still no online freshness guarantee — a client only knows about the list it
+holds (Roadmap).
 
 ## Fingerprint privacy & drift
 
@@ -129,9 +158,14 @@ it is **not** an automatic freshness enforcement mechanism today (Roadmap).
   detects large backward jumps (`LICENSE_CLOCK_ROLLBACK`). It **detects**, it
   does not **prevent**: a privileged user can delete the state file or otherwise
   manipulate the environment.
-- If the state file is corrupt, policy is fail-closed by `license_type`:
-  `trial`/`subscription` are rejected (`LICENSE_STATE_INTEGRITY_FAILURE`), while
-  a time-independent `lifetime` license is tolerated and the state is reset.
+- If the state file is corrupt, the policy is **fail-closed by
+  `license_type`**: `trial`/`subscription` are rejected
+  (`LICENSE_STATE_INTEGRITY_FAILURE`) and the corrupt state is **never silently
+  reset** to bypass detection. A time-independent `lifetime` license does **not**
+  participate in anti-rollback at all — the state file is neither read, written,
+  nor reset for it — so a corrupt state cannot deny a lifetime license (by
+  design; do not rely on this path to detect clock tampering for lifetime
+  licenses).
 - The HMAC key should be derived from a built-in secret **and** a device
   fingerprint (`DeriveRollbackKeyStrict`) so state cannot be transplanted
   between machines.
