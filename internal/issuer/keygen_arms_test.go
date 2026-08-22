@@ -212,7 +212,14 @@ func TestCommitStagedFsyncAfterPublicError(t *testing.T) {
 		if calls >= 2 { // succeed after private, fail after public
 			return nil, errors.New("open denied")
 		}
-		return origOpen(name)
+		// The first dir fsync must succeed. Directory Sync() fails on Windows,
+		// so hand back a regular file whose Sync() succeeds on every platform
+		// rather than opening the directory itself.
+		f, err := os.CreateTemp(t.TempDir(), "dirsync-*")
+		if err != nil {
+			return nil, err
+		}
+		return f, nil
 	}
 	t.Cleanup(func() { fsOpen, runtimeGOOS = origOpen, origGOOS })
 	if err := commitStagedKeyFiles(dir, privTmp, pubTmp, privPath, pubPath); err == nil {
