@@ -293,13 +293,19 @@ jobs:
       # Exercise the full release pipeline on every push/PR WITHOUT publishing,
       # so packaging regressions are caught before a tag is cut. --snapshot needs
       # no secrets and produces nothing that leaves the runner.
+      #
+      # --skip=sign: the signs:/docker_signs: stanzas shell out to cosign for
+      # KEYLESS (Fulcio/OIDC) signing, which is a publish-time concern — it needs
+      # the id-token OIDC identity that only the tagged release job has, and
+      # cosign is intentionally not installed here. Signing is exercised in the
+      # real release workflow (release.yml), not in this unsigned snapshot.
       - name: goreleaser release --snapshot --clean
         uses: goreleaser/goreleaser-action@f06c13b6b1a9625abc9e6e439d9c05a8f2190e94 # v7.2.3
         with:
           # Pin the GoReleaser CLI to an explicit v2 tag instead of the floating
           # "~> v2" constraint so snapshot builds are reproducible.
           version: v2.17.1
-          args: release --snapshot --clean
+          args: release --snapshot --clean --skip=sign
 
       - name: verify snapshot archive allowlist
         run: bash scripts/check-archive-allowlist.sh dist
