@@ -1,31 +1,31 @@
 {
   "schema_version": "1.0",
   "tests": {
-    "total": 364,
-    "passed": 364,
+    "total": 396,
+    "passed": 396,
     "failed": 0,
     "skipped": 0
   },
   "coverage": {
-    "covered_statements": 1661,
-    "total_statements": 1749,
-    "percentage": 94.97,
+    "covered_statements": 1810,
+    "total_statements": 1913,
+    "percentage": 94.62,
     "threshold": 93
   },
   "packages": [
     {
       "name": "cmd/license-tool",
       "status": "pass",
-      "tests": 80,
+      "tests": 79,
       "failed": 0,
-      "coverage": 93.01
+      "coverage": 92.94
     },
     {
       "name": "internal/issuer",
       "status": "pass",
-      "tests": 41,
+      "tests": 59,
       "failed": 0,
-      "coverage": 92.27
+      "coverage": 92.97
     },
     {
       "name": "pkg/fingerprint",
@@ -37,9 +37,9 @@
     {
       "name": "pkg/license",
       "status": "pass",
-      "tests": 217,
+      "tests": 232,
       "failed": 0,
-      "coverage": 96.04
+      "coverage": 95.42
     }
   ],
   "failures": null
