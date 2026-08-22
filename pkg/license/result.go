@@ -90,19 +90,22 @@ func (r ValidationResult) HasFeature(name string) bool {
 }
 
 // RequireFeature returns nil when the feature is granted, or a *Error with
-// CodeFeatureDenied otherwise. It is a convenience for gating code paths:
+// CodeFeatureUnavailable otherwise. It is a convenience for gating code paths:
 //
 //	if err := res.RequireFeature("api"); err != nil { return err }
 //
-// A feature is never considered granted on a non-Valid() result.
+// A feature is never considered granted on a non-Valid() result. The emitted
+// stable wire code is "LICENSE_FEATURE_UNAVAILABLE" (CodeFeatureDenied is a Go
+// identifier alias of the same string), so errors.Is against either sentinel
+// matches.
 func (r ValidationResult) RequireFeature(name string) error {
 	if !r.Valid() {
-		return newError(CodeFeatureDenied, "license not valid", nil)
+		return newError(CodeFeatureUnavailable, "license not valid", nil)
 	}
 	if r.HasFeature(name) {
 		return nil
 	}
-	return newError(CodeFeatureDenied, "feature not granted: "+name, nil)
+	return newError(CodeFeatureUnavailable, "feature denied: "+name, nil)
 }
 
 // GetLimit returns the numeric limit for key and whether it was set. It is an

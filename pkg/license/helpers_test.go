@@ -93,6 +93,7 @@ func buildRevocation(t *testing.T, s *issuer.Signer, ids ...string) (*license.Re
 	t.Helper()
 	now := time.Now().UTC()
 	return issuer.BuildRevocationListV2(s, issuer.RevocationListOptions{
+		ListID:     "list-test",
 		Sequence:   1,
 		IssuedAt:   now,
 		ExpiresAt:  now.Add(365 * 24 * time.Hour),

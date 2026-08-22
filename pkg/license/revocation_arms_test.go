@@ -10,14 +10,17 @@ import (
 	"github.com/soulteary/grantseal/pkg/license"
 )
 
-// errStateStore returns a *license.Error from Load so checkRevocationReplay
-// propagates it.
+// errStateStore returns a *license.Error from its atomic transaction so
+// checkRevocationReplay propagates it.
 type errStateStore struct{}
 
 func (errStateStore) LoadRevocationState(string) (*license.RevocationState, error) {
 	return nil, license.ErrRevocationStateIntegrityFailure
 }
 func (errStateStore) SaveRevocationState(*license.RevocationState) error { return nil }
+func (errStateStore) CheckAndSaveRevocationState(*license.RevocationState) error {
+	return license.ErrRevocationStateIntegrityFailure
+}
 
 // TestStaticRevocationNil covers the nil-receiver IsRevoked arm.
 func TestStaticRevocationNil(t *testing.T) {

@@ -192,8 +192,14 @@ type RevocationState struct {
 }
 
 // RevocationStateStore persists the anti-replay high-water mark for revocation
-// lists. Implementations must be safe for concurrent use. Load returns
-// (nil, nil) when no prior state exists for the given ListID.
+// lists. Implementations must be safe for concurrent use.
+//
+// SINGLE-PROCESS WRITER: the concurrency guarantees below hold WITHIN A SINGLE
+// PROCESS. FileRevocationStateStore coordinates multiple in-process instances
+// that share a path via a package-level per-path lock, but it does NOT take an
+// OS-level file lock, so it is NOT safe against concurrent writers in SEPARATE
+// processes writing the same file. Deploy a single writer process for the
+// revocation state file.
 type RevocationStateStore interface {
 	// LoadRevocationState returns the stored state for listID, or (nil, nil) if
 	// none exists. A corrupt/tampered store returns
@@ -201,6 +207,54 @@ type RevocationStateStore interface {
 	LoadRevocationState(listID string) (*RevocationState, error)
 	// SaveRevocationState atomically persists st (keyed by st.ListID).
 	SaveRevocationState(st *RevocationState) error
+	// CheckAndSaveRevocationState performs the entire anti-replay decision for
+	// `next` ATOMICALLY within a single critical section: it reads the existing
+	// state for next.ListID (verifying store integrity), compares list identity
+	// / sequence / payload digest, classifies the outcome, and — only when the
+	// list advances the high-water mark — persists `next`. This is the method
+	// authorization paths must use so a concurrent load+compare+save cannot lose
+	// updates or regress the mark.
+	//
+	// `next` must carry the caller-computed PayloadDigest (hex(sha256(canonical)))
+	// alongside ListID/Sequence/IssuedAt. Outcomes (stable codes preserved):
+	//   - no prior state, or a strictly higher sequence: persist `next`, return nil.
+	//   - same sequence AND same digest: idempotent re-acceptance, return nil
+	//     WITHOUT rewriting (the stored mark is unchanged).
+	//   - same sequence but DIFFERENT digest: CodeRevocationRollback, no write.
+	//   - strictly lower sequence: CodeRevocationStale, no write.
+	//   - existing state fails its integrity check: CodeRevocationStateIntegrityFailure,
+	//     no write (the corrupt state is never silently overwritten).
+	CheckAndSaveRevocationState(next *RevocationState) error
+}
+
+// classifyRevocationTransition compares an existing high-water state against a
+// candidate `next` (same list_id) and reports whether `next` should be
+// persisted, or the stable error explaining the rejection. It is a pure helper
+// shared by every store's atomic transaction so the classification is
+// identical across implementations. A nil `prev` means no prior state (accept).
+//
+// write == true means the caller should persist `next`; write == false with a
+// nil error means an idempotent re-acceptance (same seq + same digest) that
+// requires no write. A non-nil error is a rejection (stale/rollback).
+func classifyRevocationTransition(prev, next *RevocationState) (write bool, err error) {
+	if next == nil {
+		return false, newError(CodeRevocationStateIntegrityFailure, "nil revocation state", nil)
+	}
+	if prev == nil {
+		return true, nil
+	}
+	if next.Sequence < prev.Sequence {
+		return false, newError(CodeRevocationStale, "revocation sequence older than last accepted", nil)
+	}
+	if next.Sequence == prev.Sequence {
+		if prev.PayloadDigest != next.PayloadDigest {
+			return false, newError(CodeRevocationRollback, "revocation sequence reused with different content", nil)
+		}
+		// Idempotent: identical sequence and digest already recorded.
+		return false, nil
+	}
+	// Strictly higher sequence advances the high-water mark.
+	return true, nil
 }
 
 // LoadRevocationList verifies a revocation envelope against the ring and returns
@@ -222,12 +276,18 @@ func LoadRevocationList(ring *KeyRing, data []byte, now time.Time) (RevocationPr
 //     bytes, key known/enabled/in-window.
 //   - Carried bytes are exactly canonical (no ambiguity).
 //   - schema_version == RevocationSchemaVersion, key_id matches envelope,
-//     expires_at present and after issued_at.
-//   - issued_at <= now + skew (not from the future).
-//   - now <= expires_at + skew (not expired); and, when MaxAge > 0,
-//     issued_at >= now - MaxAge.
+//     entry count within MaxRevokedIDs.
+//   - Structural v2 invariants (validateRevocationV2Static, enforced
+//     unconditionally regardless of freshness): non-empty list_id, sequence > 0,
+//     non-zero issued_at, non-nil expires_at, expires_at after issued_at.
+//   - When freshness is required (default; relaxable via WithoutFreshness):
+//     issued_at <= now + skew (not from the future); now <= expires_at + skew
+//     (not expired); and, when MaxAge > 0, issued_at >= now - MaxAge.
 //   - With a StateStore: sequence >= stored high-water; a reused sequence must
 //     carry the same payload digest; on success the high-water mark is advanced.
+//
+// Order of checks: verify -> validateRevocationV2Static -> (when required)
+// freshness -> replay.
 func LoadRevocationListWithPolicy(ring *KeyRing, data []byte, now time.Time, pol RevocationPolicy) (RevocationProvider, error) {
 	// Resolve the exported RequireFresh field to the value actually enforced so
 	// it never misreports (fail-closed: only WithoutFreshness relaxes it).
@@ -276,6 +336,13 @@ func LoadRevocationListWithPolicy(ring *KeyRing, data []byte, now time.Time, pol
 		return nil, newError(CodeSignatureInvalid, "v2 revocation must use domain-separated signature", nil)
 	}
 
+	// v2 STRUCTURAL invariants are enforced UNCONDITIONALLY, before any
+	// time-relative freshness check and regardless of WithoutFreshness. A
+	// structurally malformed list is never trusted even when replaying an
+	// archived distribution offline.
+	if err := validateRevocationV2Static(rl); err != nil {
+		return nil, err
+	}
 	if pol.requireFresh() {
 		if err := checkRevocationFreshness(rl, now, pol); err != nil {
 			return nil, err
@@ -285,6 +352,42 @@ func LoadRevocationListWithPolicy(ring *KeyRing, data []byte, now time.Time, pol
 		return nil, err
 	}
 	return buildProvider(rl)
+}
+
+// validateRevocationV2Static enforces the schema-v2 structural invariants that
+// hold independently of the current wall clock. It runs after signature
+// authentication and strict decoding but BEFORE freshness/replay, and is NOT
+// gated by RequireFresh/WithoutFreshness — a structurally malformed v2 list is
+// rejected even for deliberate offline replay of an archived distribution.
+//
+// All structural violations map to the existing CodeMalformed (no new stable
+// code is introduced). schema_version/key_id/entry-cap relationships that were
+// already enforced during signature verification are not re-checked here; this
+// function owns the shape of a v2 body: identity, sequence, and the
+// issued_at/expires_at ordering (but not their comparison against `now`, which
+// remains in checkRevocationFreshness). Per the current protocol individual
+// revoked-ID emptiness/duplication is handled by buildProvider (empty IDs
+// dropped), so no additional per-ID rejection is added here.
+func validateRevocationV2Static(rl *RevocationList) error {
+	if rl.SchemaVersion != RevocationSchemaVersion {
+		return newError(CodeMalformed, "v2 revocation list requires schema_version 2", nil)
+	}
+	if rl.ListID == "" {
+		return newError(CodeMalformed, "v2 revocation list requires list_id", nil)
+	}
+	if rl.Sequence == 0 {
+		return newError(CodeMalformed, "v2 revocation list requires sequence > 0", nil)
+	}
+	if rl.IssuedAt.IsZero() {
+		return newError(CodeMalformed, "v2 revocation list requires issued_at", nil)
+	}
+	if rl.ExpiresAt == nil {
+		return newError(CodeMalformed, "v2 revocation list requires expires_at", nil)
+	}
+	if !rl.ExpiresAt.After(rl.IssuedAt) {
+		return newError(CodeMalformed, "revocation expires_at must be after issued_at", nil)
+	}
+	return nil
 }
 
 // verifyRevocationSignature checks the Ed25519 signature, decodes the list, and
@@ -330,17 +433,18 @@ func verifyRevocationSignature(pub ed25519.PublicKey, canonical, sig []byte, env
 	return &rl, legacySigned, nil
 }
 
-// checkRevocationFreshness enforces the issued_at/expires_at time window for a
-// v2 list.
+// checkRevocationFreshness enforces the time-relative window for a v2 list
+// (issued-in-the-future, expired, and the optional MaxAge bound). The purely
+// structural invariants (expires_at present, issued_at non-zero, expires_at
+// after issued_at) are enforced unconditionally by validateRevocationV2Static
+// before this runs, so this function only compares against `now`. It is skipped
+// when the caller opts out via WithoutFreshness.
 func checkRevocationFreshness(rl *RevocationList, now time.Time, pol RevocationPolicy) error {
 	if rl.ExpiresAt == nil {
+		// Defensive: the static validator already guarantees a non-nil
+		// expires_at for a v2 list; guard against a nil deref if this is ever
+		// called on an unchecked list.
 		return newError(CodeMalformed, "v2 revocation list requires expires_at", nil)
-	}
-	if rl.IssuedAt.IsZero() {
-		return newError(CodeMalformed, "v2 revocation list requires issued_at", nil)
-	}
-	if !rl.ExpiresAt.After(rl.IssuedAt) {
-		return newError(CodeMalformed, "revocation expires_at must be after issued_at", nil)
 	}
 	skew := pol.skew()
 	if rl.IssuedAt.After(now.Add(skew)) {
@@ -356,30 +460,22 @@ func checkRevocationFreshness(rl *RevocationList, now time.Time, pol RevocationP
 }
 
 // checkRevocationReplay enforces the local high-water anti-replay contract when
-// a StateStore is configured, and advances the mark on success.
+// a StateStore is configured, and advances the mark on success. The whole
+// read->classify->write decision is delegated to the store's atomic
+// CheckAndSaveRevocationState so concurrent loads cannot regress the mark; this
+// function only computes the candidate state (including the canonical payload
+// digest) from the verified list.
 func checkRevocationReplay(rl *RevocationList, canonical []byte, pol RevocationPolicy) error {
 	if pol.StateStore == nil {
 		return nil
 	}
-	prev, err := pol.StateStore.LoadRevocationState(rl.ListID)
-	if err != nil {
-		return err
-	}
-	digest := hex.EncodeToString(sha256Sum(canonical))
-	if prev != nil {
-		if rl.Sequence < prev.Sequence {
-			return newError(CodeRevocationStale, "revocation sequence older than last accepted", nil)
-		}
-		if rl.Sequence == prev.Sequence && prev.PayloadDigest != digest {
-			return newError(CodeRevocationRollback, "revocation sequence reused with different content", nil)
-		}
-	}
-	return pol.StateStore.SaveRevocationState(&RevocationState{
+	next := &RevocationState{
 		ListID:        rl.ListID,
 		Sequence:      rl.Sequence,
 		IssuedAt:      rl.IssuedAt,
-		PayloadDigest: digest,
-	})
+		PayloadDigest: hex.EncodeToString(sha256Sum(canonical)),
+	}
+	return pol.StateStore.CheckAndSaveRevocationState(next)
 }
 
 func sha256Sum(b []byte) []byte {

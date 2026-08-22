@@ -26,6 +26,7 @@ func TestRevocationReplayRejectsOlderSequence(t *testing.T) {
 	// Build + accept sequence=100 first.
 	newList := func(seq uint64) []byte {
 		env, err := issuer.BuildRevocationListV2(s, issuer.RevocationListOptions{
+			ListID:     "list-seq",
 			Sequence:   seq,
 			IssuedAt:   now,
 			ExpiresAt:  now.Add(30 * 24 * time.Hour),
@@ -81,10 +82,13 @@ func TestRevocationV1RejectedByDefault(t *testing.T) {
 	}
 }
 
-// revV2 builds a v2 revocation list envelope with the given fields.
+// revV2 builds a v2 revocation list envelope with the given fields. It supplies
+// a non-empty default ListID (required by the v2 static invariants); tests that
+// need a specific list identity build the options directly.
 func revV2(t *testing.T, s *issuer.Signer, seq uint64, issued, expires time.Time, ids ...string) []byte {
 	t.Helper()
 	env, err := issuer.BuildRevocationListV2(s, issuer.RevocationListOptions{
+		ListID:     "list-test",
 		Sequence:   seq,
 		IssuedAt:   issued,
 		ExpiresAt:  expires,

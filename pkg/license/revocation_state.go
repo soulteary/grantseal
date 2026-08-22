@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"os"
+	"path/filepath"
 	"sync"
 )
 
@@ -47,14 +48,88 @@ func (s *MemRevocationStateStore) SaveRevocationState(st *RevocationState) error
 	return nil
 }
 
+// CheckAndSaveRevocationState performs the read->classify->write anti-replay
+// transaction for next under a single lock so concurrent callers cannot lose
+// updates or regress the high-water mark. See the RevocationStateStore
+// interface for the outcome contract.
+func (s *MemRevocationStateStore) CheckAndSaveRevocationState(next *RevocationState) error {
+	if next == nil {
+		return newError(CodeRevocationStateIntegrityFailure, "nil revocation state", nil)
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var prev *RevocationState
+	if st, ok := s.m[next.ListID]; ok {
+		cp := st
+		prev = &cp
+	}
+	write, err := classifyRevocationTransition(prev, next)
+	if err != nil {
+		return err
+	}
+	if write {
+		s.m[next.ListID] = *next
+	}
+	return nil
+}
+
 // FileRevocationStateStore persists revocation high-water state to a single
 // JSON file, authenticated with HMAC-SHA256 so tampering is detectable (not
 // preventable — see SECURITY). It keeps one entry per list_id and is safe for
-// concurrent use. Writes are atomic (temp file + rename + directory fsync).
+// concurrent use WITHIN A SINGLE PROCESS. Writes are atomic (temp file + rename
+// + directory fsync).
+//
+// SINGLE-PROCESS WRITER: multiple FileRevocationStateStore instances that point
+// at the same file are coordinated by a package-level per-path mutex (keyed by
+// the cleaned absolute path), so the read->classify->write transaction is
+// serialized across in-process instances. This is NOT cross-process safe: no
+// OS-level file lock is taken, so a second OS process writing the same file
+// concurrently can still race. Deploy exactly one writer process. This is a
+// deliberate design limit (zero third-party dependencies, no platform-specific
+// syscalls); the atomic rename keeps each individual write all-or-nothing but
+// does not make cross-process transactions serializable.
 type FileRevocationStateStore struct {
-	mu      sync.Mutex
 	path    string
 	hmacKey []byte
+	// pathMu is the shared per-path mutex used to serialize the atomic
+	// read->classify->write transaction across every in-process store instance
+	// that targets the same file. It is resolved once at construction from the
+	// package-level registry using the cleaned absolute path.
+	pathMu *sync.Mutex
+}
+
+// revStatePathLocks maps a normalized (cleaned, absolute where resolvable)
+// revocation-state file path to the mutex that serializes transactions against
+// it across all in-process store instances. It exists so two stores over the
+// same file cannot interleave load/classify/write and regress the high-water
+// mark. It provides NO cross-process protection.
+var (
+	revStatePathLocksMu sync.Mutex
+	revStatePathLocks   = map[string]*sync.Mutex{}
+)
+
+// normalizeStatePath returns a stable key for path so different spellings of
+// the same file (relative vs absolute, unclean) share one lock. It prefers the
+// cleaned absolute path and falls back to filepath.Clean when Abs fails.
+func normalizeStatePath(path string) string {
+	if abs, err := filepath.Abs(path); err == nil {
+		return filepath.Clean(abs)
+	}
+	return filepath.Clean(path)
+}
+
+// pathLockFor returns the shared mutex for the normalized path, creating it on
+// first use.
+func pathLockFor(path string) *sync.Mutex {
+	key := normalizeStatePath(path)
+	revStatePathLocksMu.Lock()
+	defer revStatePathLocksMu.Unlock()
+	mu, ok := revStatePathLocks[key]
+	if !ok {
+		mu = &sync.Mutex{}
+		revStatePathLocks[key] = mu
+	}
+	return mu
 }
 
 // fileRevocationStateFile is the on-disk container: a map of list_id -> state
@@ -75,7 +150,7 @@ func NewFileRevocationStateStore(path string, hmacKey []byte) (*FileRevocationSt
 	}
 	k := make([]byte, len(hmacKey))
 	copy(k, hmacKey)
-	return &FileRevocationStateStore{path: path, hmacKey: k}, nil
+	return &FileRevocationStateStore{path: path, hmacKey: k, pathMu: pathLockFor(path)}, nil
 }
 
 func (s *FileRevocationStateStore) mac(entries map[string]RevocationState) (string, error) {
@@ -126,9 +201,12 @@ func (s *FileRevocationStateStore) loadFileLocked() (map[string]RevocationState,
 // LoadRevocationState returns the stored state for listID, or (nil, nil) when
 // none exists. A corrupt/tampered file returns
 // CodeRevocationStateIntegrityFailure (fail-closed).
+//
+// It serializes under the shared per-path lock so it never observes a partial
+// write from a concurrent in-process transaction against the same file.
 func (s *FileRevocationStateStore) LoadRevocationState(listID string) (*RevocationState, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	s.pathMu.Lock()
+	defer s.pathMu.Unlock()
 	entries, err := s.loadFileLocked()
 	if err != nil {
 		return nil, err
@@ -141,19 +219,9 @@ func (s *FileRevocationStateStore) LoadRevocationState(listID string) (*Revocati
 	return &cp, nil
 }
 
-// SaveRevocationState atomically merges st into the on-disk map (keyed by
-// st.ListID) and rewrites the file with a fresh MAC.
-func (s *FileRevocationStateStore) SaveRevocationState(st *RevocationState) error {
-	if st == nil {
-		return newError(CodeRevocationStateIntegrityFailure, "nil revocation state", nil)
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	entries, err := s.loadFileLocked()
-	if err != nil {
-		return err
-	}
-	entries[st.ListID] = *st
+// writeEntriesLocked rewrites the on-disk map with a fresh MAC via an atomic
+// temp-file + rename. Callers must hold s.pathMu.
+func (s *FileRevocationStateStore) writeEntriesLocked(entries map[string]RevocationState) error {
 	mac, err := s.mac(entries)
 	if err != nil {
 		return err
@@ -168,4 +236,53 @@ func (s *FileRevocationStateStore) SaveRevocationState(st *RevocationState) erro
 		return newError(CodeRevocationStateIntegrityFailure, "persist revocation state", err)
 	}
 	return nil
+}
+
+// SaveRevocationState atomically merges st into the on-disk map (keyed by
+// st.ListID) and rewrites the file with a fresh MAC. It serializes under the
+// shared per-path lock. Prefer CheckAndSaveRevocationState for authorization
+// paths, which additionally enforces the anti-replay classification atomically.
+func (s *FileRevocationStateStore) SaveRevocationState(st *RevocationState) error {
+	if st == nil {
+		return newError(CodeRevocationStateIntegrityFailure, "nil revocation state", nil)
+	}
+	s.pathMu.Lock()
+	defer s.pathMu.Unlock()
+	entries, err := s.loadFileLocked()
+	if err != nil {
+		return err
+	}
+	entries[st.ListID] = *st
+	return s.writeEntriesLocked(entries)
+}
+
+// CheckAndSaveRevocationState performs the read->classify->write anti-replay
+// transaction for next atomically under the shared per-path lock (see the
+// RevocationStateStore interface and the FileRevocationStateStore type comment
+// for the single-process-writer limitation). A corrupt/tampered existing file
+// fails the integrity check and is never silently overwritten.
+func (s *FileRevocationStateStore) CheckAndSaveRevocationState(next *RevocationState) error {
+	if next == nil {
+		return newError(CodeRevocationStateIntegrityFailure, "nil revocation state", nil)
+	}
+	s.pathMu.Lock()
+	defer s.pathMu.Unlock()
+	entries, err := s.loadFileLocked()
+	if err != nil {
+		return err
+	}
+	var prev *RevocationState
+	if st, ok := entries[next.ListID]; ok {
+		cp := st
+		prev = &cp
+	}
+	write, err := classifyRevocationTransition(prev, next)
+	if err != nil {
+		return err
+	}
+	if !write {
+		return nil
+	}
+	entries[next.ListID] = *next
+	return s.writeEntriesLocked(entries)
 }

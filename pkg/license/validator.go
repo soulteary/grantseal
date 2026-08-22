@@ -38,6 +38,7 @@ func validate(p *Payload, now time.Time, keyID string, ctx ValidationContext) Va
 	// which code wins when several constraints fail at once.
 	for _, gate := range []func() Code{
 		func() Code { return validateStaticGate(p) },
+		func() Code { return validateIssuedAtGate(p, now, skew) },
 		func() Code { return validateRevocationGate(p, ctx) },
 		func() Code { return validateProductGate(p, ctx) },
 		func() Code { return validateNotBeforeGate(p, now, skew) },
@@ -88,6 +89,20 @@ func validate(p *Payload, now time.Time, keyID string, ctx ValidationContext) Va
 func validateStaticGate(p *Payload) Code {
 	if err := p.validateStatic(); err != nil {
 		return CodeOf(err)
+	}
+	return CodeOK
+}
+
+// validateIssuedAtGate rejects a license whose issued_at is further in the
+// future than the tolerated clock skew allows. A license signed with an
+// issuance timestamp beyond now+skew cannot legitimately exist yet, so it is
+// refused with CodeNotYetValid (reused; no new code). It runs immediately after
+// the static gate (which already guarantees issued_at is non-zero) and before
+// the grant/product/device/version gates, using the trusted `now` supplied by
+// the caller — it never consults the wall clock directly.
+func validateIssuedAtGate(p *Payload, now time.Time, skew time.Duration) Code {
+	if p.IssuedAt.After(now.Add(skew)) {
+		return CodeNotYetValid
 	}
 	return CodeOK
 }

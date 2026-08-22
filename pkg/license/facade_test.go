@@ -168,8 +168,8 @@ func TestRequireFeatureAndCheckLimit(t *testing.T) {
 	if err := res.RequireFeature("api"); err != nil {
 		t.Fatalf("api should be granted: %v", err)
 	}
-	if err := res.RequireFeature("audit"); license.CodeOf(err) != license.CodeFeatureDenied {
-		t.Fatalf("expected LICENSE_FEATURE_DENIED for audit, got %s", license.CodeOf(err))
+	if err := res.RequireFeature("audit"); license.CodeOf(err) != license.CodeFeatureUnavailable {
+		t.Fatalf("expected LICENSE_FEATURE_UNAVAILABLE for audit, got %s", license.CodeOf(err))
 	}
 
 	if err := res.CheckLimit("max_seats", 10); err != nil {
@@ -488,13 +488,17 @@ func TestVersionRangeUnaffectedByCoveredMax(t *testing.T) {
 	}
 }
 
-// #3: backward-compatible alias still present and distinct from new code.
+// #3: backward-compatible alias now resolves to the same wire code as the
+// canonical CodeFeatureUnavailable (they are two Go identifiers for one string).
 func TestFeatureCodeAlias(t *testing.T) {
-	if license.CodeFeatureUnavailable == license.CodeFeatureDenied {
-		t.Fatal("alias and new code should be distinct strings")
+	if license.CodeFeatureUnavailable != license.CodeFeatureDenied {
+		t.Fatal("CodeFeatureDenied must be a Go alias of CodeFeatureUnavailable (same string)")
 	}
-	if license.CodeFeatureDenied != "LICENSE_FEATURE_DENIED" {
-		t.Fatalf("unexpected feature-denied code: %s", license.CodeFeatureDenied)
+	if license.CodeFeatureUnavailable != "LICENSE_FEATURE_UNAVAILABLE" {
+		t.Fatalf("unexpected feature-unavailable code: %s", license.CodeFeatureUnavailable)
+	}
+	if license.CodeFeatureDenied != "LICENSE_FEATURE_UNAVAILABLE" {
+		t.Fatalf("alias must resolve to LICENSE_FEATURE_UNAVAILABLE, got: %s", license.CodeFeatureDenied)
 	}
 	if license.CodeLimitExceeded != "LICENSE_LIMIT_EXCEEDED" {
 		t.Fatalf("unexpected limit-exceeded code: %s", license.CodeLimitExceeded)

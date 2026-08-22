@@ -60,6 +60,7 @@ func FuzzLoadRevocationList(f *testing.F) {
 	// A real, valid signed revocation list is the most useful seed.
 	seedNow := time.Now().UTC()
 	if env, err := issuer.BuildRevocationListV2(s, issuer.RevocationListOptions{
+		ListID:     "list-fuzz",
 		Sequence:   1,
 		IssuedAt:   seedNow,
 		ExpiresAt:  seedNow.Add(365 * 24 * time.Hour),

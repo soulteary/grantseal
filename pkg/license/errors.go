@@ -37,7 +37,6 @@ const (
 	CodeDeviceMismatch        Code = "LICENSE_DEVICE_MISMATCH"
 	CodeProductMismatch       Code = "LICENSE_PRODUCT_MISMATCH"
 	CodeVersionUnsupported    Code = "LICENSE_VERSION_UNSUPPORTED"
-	CodeFeatureDenied         Code = "LICENSE_FEATURE_DENIED"
 	CodeLimitExceeded         Code = "LICENSE_LIMIT_EXCEEDED"
 	CodeStateIntegrityFailure Code = "LICENSE_STATE_INTEGRITY_FAILURE"
 
@@ -81,11 +80,17 @@ const (
 	// limit key cannot silently grant unlimited access.
 	CodeLimitRequired Code = "LICENSE_LIMIT_REQUIRED"
 
-	// CodeFeatureUnavailable is a backward-compatible alias of the older
-	// "LICENSE_FEATURE_UNAVAILABLE" spelling. New code should emit
-	// CodeFeatureDenied; this constant is retained only so existing callers
-	// that compared against the old string do not silently break.
+	// CodeFeatureUnavailable is the single stable machine code emitted when a
+	// feature gate fails (whether the feature is absent, insufficient, or the
+	// result is not valid). Its wire string is "LICENSE_FEATURE_UNAVAILABLE".
 	CodeFeatureUnavailable Code = "LICENSE_FEATURE_UNAVAILABLE"
+
+	// CodeFeatureDenied is a backward-compatible Go identifier alias for
+	// CodeFeatureUnavailable. It exists so existing callers that reference the
+	// CodeFeatureDenied identifier keep compiling; it resolves to the SAME wire
+	// string ("LICENSE_FEATURE_UNAVAILABLE"), so errors.Is/CodeOf comparisons
+	// against either identifier match. It is NOT a distinct error code.
+	CodeFeatureDenied = CodeFeatureUnavailable
 )
 
 // Error wraps a stable Code with a human-readable message and optional cause.
@@ -144,7 +149,7 @@ var (
 	ErrDeviceMismatch        = &Error{Code: CodeDeviceMismatch}
 	ErrProductMismatch       = &Error{Code: CodeProductMismatch}
 	ErrVersionUnsupported    = &Error{Code: CodeVersionUnsupported}
-	ErrFeatureDenied         = &Error{Code: CodeFeatureDenied}
+	ErrFeatureUnavailable    = &Error{Code: CodeFeatureUnavailable}
 	ErrLimitExceeded         = &Error{Code: CodeLimitExceeded}
 	ErrStateIntegrityFailure = &Error{Code: CodeStateIntegrityFailure}
 	ErrProductRequired       = &Error{Code: CodeProductRequired}
@@ -157,9 +162,10 @@ var (
 	ErrRevocationStateIntegrityFailure = &Error{Code: CodeRevocationStateIntegrityFailure}
 	ErrLimitRequired                   = &Error{Code: CodeLimitRequired}
 
-	// ErrFeatureUnavailable is retained as a backward-compatible alias for the
-	// older feature-denied sentinel. Prefer ErrFeatureDenied in new code.
-	ErrFeatureUnavailable = &Error{Code: CodeFeatureUnavailable}
+	// ErrFeatureDenied is a backward-compatible alias for ErrFeatureUnavailable.
+	// Both carry the same wire code ("LICENSE_FEATURE_UNAVAILABLE"), so
+	// errors.Is against either matches. Prefer ErrFeatureUnavailable in new code.
+	ErrFeatureDenied = ErrFeatureUnavailable
 )
 
 // CodeOf extracts the stable Code from any error, returning "" if the error is

@@ -147,6 +147,7 @@ func benchRevocationProvider(b *testing.B, s *issuer.Signer, ring *license.KeyRi
 	}
 	now := time.Now().UTC()
 	env, err := issuer.BuildRevocationListV2(s, issuer.RevocationListOptions{
+		ListID:     "list-bench",
 		Sequence:   1,
 		IssuedAt:   now,
 		ExpiresAt:  now.Add(365 * 24 * time.Hour),

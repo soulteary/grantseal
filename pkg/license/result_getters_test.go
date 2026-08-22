@@ -214,10 +214,18 @@ func TestRequireFeatureBranches(t *testing.T) {
 	if err := valid.RequireFeature("api"); err != nil {
 		t.Fatalf("granted feature should pass, got %v", err)
 	}
-	if err := valid.RequireFeature("missing"); CodeOf(err) != CodeFeatureDenied {
-		t.Fatalf("ungranted feature: want CodeFeatureDenied, got %v", err)
+	if err := valid.RequireFeature("missing"); CodeOf(err) != CodeFeatureUnavailable {
+		t.Fatalf("ungranted feature: want CodeFeatureUnavailable, got %v", err)
 	}
-	if err := invalid.RequireFeature("api"); CodeOf(err) != CodeFeatureDenied {
-		t.Fatalf("non-valid result: want CodeFeatureDenied, got %v", err)
+	if err := invalid.RequireFeature("api"); CodeOf(err) != CodeFeatureUnavailable {
+		t.Fatalf("non-valid result: want CodeFeatureUnavailable, got %v", err)
+	}
+	// The emitted wire code must be the single canonical string, reachable via
+	// either Go identifier (CodeFeatureDenied is an alias).
+	if got := CodeOf(valid.RequireFeature("missing")); got != "LICENSE_FEATURE_UNAVAILABLE" {
+		t.Fatalf("wire code must be LICENSE_FEATURE_UNAVAILABLE, got %s", got)
+	}
+	if CodeFeatureDenied != CodeFeatureUnavailable {
+		t.Fatal("CodeFeatureDenied must alias CodeFeatureUnavailable")
 	}
 }

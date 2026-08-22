@@ -130,6 +130,15 @@ func clockSkewDefault() time.Duration {
 // the trusted last-seen-time high-water mark nor cause a state file to be
 // written from rejected data.
 func (m *Manager) Validate(data []byte, ctx ValidationContext) (ValidationResult, error) {
+	// Transactional cache write: clear any prior cached result at the START so
+	// no failure branch below can leave a stale successful decision readable via
+	// CachedResult. The cache is only re-populated on the success path at the
+	// very end (storeCache), so a malformed/forged/expired/revoked/mismatched
+	// license fails closed with an empty cache.
+	m.mu.Lock()
+	m.cached = nil
+	m.mu.Unlock()
+
 	now, err := m.clock.Now()
 	if err != nil {
 		return invalidResult(CodeClockRollback, time.Now().UTC()), newError(CodeClockRollback, "trusted time unavailable", err)
@@ -217,16 +226,22 @@ func (m *Manager) LoadAndValidate(path string, ctx ValidationContext) (Validatio
 	now := time.Now().UTC()
 	fi, err := os.Stat(path)
 	if err != nil {
+		// Fail closed: these early returns happen BEFORE Validate (which clears
+		// the cache on entry), so clear here too — a disappeared/unreadable file
+		// must never leave a prior successful decision readable via CachedResult.
+		m.InvalidateCache()
 		if os.IsNotExist(err) {
 			return invalidResult(CodeFileNotFound, now), newError(CodeFileNotFound, "license file not found", err)
 		}
 		return invalidResult(CodeMalformed, now), newError(CodeMalformed, "stat license file", err)
 	}
 	if fi.Size() > MaxLicenseFileSize {
+		m.InvalidateCache()
 		return invalidResult(CodeFileTooLarge, now), newError(CodeFileTooLarge, "license file too large", nil)
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {
+		m.InvalidateCache()
 		return invalidResult(CodeMalformed, now), newError(CodeMalformed, "read license file", err)
 	}
 	return m.Validate(data, ctx)
@@ -284,6 +299,17 @@ func (m *Manager) storeCache(r ValidationResult) {
 // entry is considered stale (and thus not returned) once the current trusted
 // time is past its usable boundary (grace-until or expiry). Perpetual licenses
 // never expire from the cache. This never triggers cryptographic work.
+//
+// DIAGNOSTIC USE ONLY: the cache reflects the LAST good decision for
+// history/diagnostics/non-security UI. It is NEVER an authorization decision —
+// callers that need to authorize must re-run Validate, which performs fresh
+// cryptographic verification. There is deliberately no fast-path authorization
+// cache.
+//
+// Fail-closed on clock: when a time-bounded entry exists but the trusted clock
+// is unavailable (m.clock.Now returns an error) we cannot prove the entry is
+// still fresh, so we return (ValidationResult{}, false) rather than falling back
+// to the local wall clock. Do not degrade this path to time.Now().
 func (m *Manager) CachedResult() (ValidationResult, bool) {
 	m.mu.RLock()
 	c := m.cached
@@ -294,7 +320,7 @@ func (m *Manager) CachedResult() (ValidationResult, bool) {
 	if !c.expiresAt.IsZero() {
 		now, err := m.clock.Now()
 		if err != nil {
-			now = time.Now().UTC()
+			return ValidationResult{}, false
 		}
 		if now.UTC().After(c.expiresAt) {
 			return ValidationResult{}, false

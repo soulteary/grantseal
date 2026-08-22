@@ -298,7 +298,8 @@ func TestValidateTimeSemanticsArms(t *testing.T) {
 
 // ---------------------------------------------------------------------------
 // manager.go: WithClockSkew ignore-arm, clockSkewDefault env arm, clock-unavailable
-// degradation on Inspect/CachedResult, and Validate fail-closed on bad clock.
+// degradation on Inspect (diagnostic only), CachedResult fail-closed on bad clock,
+// and Validate fail-closed on bad clock.
 // ---------------------------------------------------------------------------
 
 func TestWithClockSkewIgnoresNonPositive(t *testing.T) {
@@ -363,7 +364,7 @@ func TestInspectParseAndVerifyErrors(t *testing.T) {
 	}
 }
 
-func TestCachedResultClockDegradationAndStale(t *testing.T) {
+func TestCachedResultClockFailClosedAndStale(t *testing.T) {
 	// A cached result with a time-based expiry in the past becomes stale.
 	m := NewManager(NewKeyRing(), WithClock(FixedClock{T: time.Now().UTC()}))
 	past := time.Now().UTC().Add(-time.Hour)
@@ -371,15 +372,22 @@ func TestCachedResultClockDegradationAndStale(t *testing.T) {
 	if _, ok := m.CachedResult(); ok {
 		t.Fatal("expired cache entry should be reported stale")
 	}
-	// With a failing clock, CachedResult degrades to wall clock (still stale here).
+	// FAIL CLOSED: when the trusted clock is unavailable, a time-bounded entry
+	// can no longer be proven fresh, so CachedResult must return false even for
+	// an entry whose expiry is in the future.
 	m.clock = errClock{}
-	m.cached = &cachedResult{result: ValidationResult{status: StatusValid}, expiresAt: past}
-	if _, ok := m.CachedResult(); ok {
-		t.Fatal("expired cache entry (degraded clock) should be reported stale")
-	}
-	// A fresh (future) entry is returned.
-	m.clock = FixedClock{T: time.Now().UTC()}
 	future := time.Now().UTC().Add(time.Hour)
+	m.cached = &cachedResult{result: ValidationResult{status: StatusValid}, expiresAt: future}
+	if _, ok := m.CachedResult(); ok {
+		t.Fatal("clock error must fail closed for a time-bounded cache entry")
+	}
+	// A perpetual entry (zero expiry) is unaffected by clock availability.
+	m.cached = &cachedResult{result: ValidationResult{status: StatusValid}}
+	if _, ok := m.CachedResult(); !ok {
+		t.Fatal("perpetual (no expiry) cache entry should be returned regardless of clock")
+	}
+	// A fresh (future) entry is returned under a working clock.
+	m.clock = FixedClock{T: time.Now().UTC()}
 	m.cached = &cachedResult{result: ValidationResult{status: StatusValid}, expiresAt: future}
 	if _, ok := m.CachedResult(); !ok {
 		t.Fatal("fresh cache entry should be returned")

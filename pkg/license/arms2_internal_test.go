@@ -82,22 +82,54 @@ func TestCheckDeviceArms(t *testing.T) {
 	}
 }
 
-// TestCheckRevocationFreshnessArms drives the freshness validation arms.
+// TestValidateRevocationV2StaticArms drives the unconditional structural
+// invariants (schema/list_id/sequence/issued_at/expires_at ordering) that are
+// enforced regardless of freshness.
+func TestValidateRevocationV2StaticArms(t *testing.T) {
+	now := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
+	exp := now.Add(time.Hour)
+	base := func() *RevocationList {
+		return &RevocationList{
+			SchemaVersion: RevocationSchemaVersion,
+			ListID:        "list-a",
+			Sequence:      1,
+			IssuedAt:      now,
+			ExpiresAt:     &exp,
+		}
+	}
+	tests := []struct {
+		name   string
+		mutate func(rl *RevocationList)
+	}{
+		{"bad schema", func(rl *RevocationList) { rl.SchemaVersion = 1 }},
+		{"empty list_id", func(rl *RevocationList) { rl.ListID = "" }},
+		{"zero sequence", func(rl *RevocationList) { rl.Sequence = 0 }},
+		{"zero issued_at", func(rl *RevocationList) { rl.IssuedAt = time.Time{} }},
+		{"nil expires_at", func(rl *RevocationList) { rl.ExpiresAt = nil }},
+		{"expires<=issued", func(rl *RevocationList) { before := now.Add(-time.Hour); rl.ExpiresAt = &before }},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			rl := base()
+			tc.mutate(rl)
+			if err := validateRevocationV2Static(rl); CodeOf(err) != CodeMalformed {
+				t.Fatalf("%s: want CodeMalformed, got %v", tc.name, err)
+			}
+		})
+	}
+	if err := validateRevocationV2Static(base()); err != nil {
+		t.Fatalf("valid v2 static list should pass, got %v", err)
+	}
+}
+
+// TestCheckRevocationFreshnessArms drives the time-relative freshness arms
+// (issued-in-future, expired, MaxAge). Structural invariants now live in
+// validateRevocationV2Static and are covered separately.
 func TestCheckRevocationFreshnessArms(t *testing.T) {
 	now := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
 	pol := RevocationPolicy{}
-
-	if err := checkRevocationFreshness(&RevocationList{}, now, pol); CodeOf(err) != CodeMalformed {
-		t.Fatalf("missing expires_at: want CodeMalformed, got %v", err)
-	}
 	exp := now.Add(time.Hour)
-	if err := checkRevocationFreshness(&RevocationList{ExpiresAt: &exp}, now, pol); CodeOf(err) != CodeMalformed {
-		t.Fatalf("zero issued_at: want CodeMalformed, got %v", err)
-	}
-	before := now.Add(-time.Hour)
-	if err := checkRevocationFreshness(&RevocationList{IssuedAt: now, ExpiresAt: &before}, now, pol); CodeOf(err) != CodeMalformed {
-		t.Fatalf("expires<=issued: want CodeMalformed, got %v", err)
-	}
+
 	// Issued in the future.
 	future := now.Add(2 * time.Hour)
 	fexp := now.Add(3 * time.Hour)

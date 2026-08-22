@@ -33,6 +33,30 @@ func NewKeyRing() *KeyRing {
 	return &KeyRing{keys: make(map[string]KeyEntry)}
 }
 
+// cloneKeyEntry returns a deep copy of e so callers can never share mutable
+// state with the ring's internal map: the PublicKey byte slice is copied and
+// the NotBefore/NotAfter pointers (when set) point at freshly allocated
+// time.Time values. This is used both when storing into the ring (so a later
+// mutation of the caller's input cannot alter stored keys) and when returning
+// entries (so a caller mutating the returned entry cannot corrupt the ring).
+func cloneKeyEntry(e KeyEntry) KeyEntry {
+	out := e
+	if e.PublicKey != nil {
+		cp := make(ed25519.PublicKey, len(e.PublicKey))
+		copy(cp, e.PublicKey)
+		out.PublicKey = cp
+	}
+	if e.NotBefore != nil {
+		nb := *e.NotBefore
+		out.NotBefore = &nb
+	}
+	if e.NotAfter != nil {
+		na := *e.NotAfter
+		out.NotAfter = &na
+	}
+	return out
+}
+
 // Add inserts or replaces a key entry. It validates the public-key length.
 func (r *KeyRing) Add(e KeyEntry) error {
 	if e.KeyID == "" {
@@ -43,11 +67,9 @@ func (r *KeyRing) Add(e KeyEntry) error {
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	// Store a defensive copy of the key bytes.
-	cp := make(ed25519.PublicKey, len(e.PublicKey))
-	copy(cp, e.PublicKey)
-	e.PublicKey = cp
-	r.keys[e.KeyID] = e
+	// Store a deep copy so a later mutation of the caller's input (key bytes or
+	// NotBefore/NotAfter pointers) cannot alter the stored entry.
+	r.keys[e.KeyID] = cloneKeyEntry(e)
 	return nil
 }
 
@@ -89,7 +111,9 @@ func (r *KeyRing) LookupPublicKey(keyID string) (KeyEntry, error) {
 	if !e.Enabled {
 		return KeyEntry{}, newError(CodeKeyDisabled, "key disabled", nil)
 	}
-	return e, nil
+	// Return a deep copy so a caller mutating the entry (PublicKey bytes or
+	// NotBefore/NotAfter) cannot corrupt the ring's internal state.
+	return cloneKeyEntry(e), nil
 }
 
 // CheckKeyPolicy reports whether the key was within its issuance window at the
