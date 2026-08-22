@@ -1,9 +1,31 @@
 name: Release
 
+# Three entry points, all funnel into the SAME build -> verify -> publish ->
+# attest -> promote pipeline:
+#   1. push a `v*` tag          -> classic tag-driven release (atomic draft flow)
+#   2. publish a GitHub Release -> the web UI "Draft a new release" / "Publish"
+#                                  path; the Release already exists, so
+#                                  goreleaser uploads assets to it and the final
+#                                  promote step is a harmless no-op.
+#   3. manual workflow_dispatch -> run from the Actions tab against a chosen tag.
 on:
   push:
     tags:
       - "v*"
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing tag to release (e.g. v1.2.3)"
+        required: true
+        type: string
+
+# Serialize releases per tag so the tag-push and release-published events that
+# a single web release can emit cannot run the pipeline twice concurrently.
+concurrency:
+  group: release-${{ github.event.release.tag_name || github.event.inputs.tag || github.ref_name }}
+  cancel-in-progress: false
 
 # Default read-only for the whole workflow; the release job opts into the write
 # scopes it needs, and the supply-chain attestation step opts into the narrow
@@ -12,16 +34,62 @@ permissions:
   contents: read
 
 jobs:
+  # Resolve the ONE tag this run releases, regardless of which event triggered
+  # it, and expose it (with and without the leading `v`) to every downstream
+  # job. This is the single source of truth that replaces the raw
+  # GITHUB_REF_NAME, which is the branch name (not a tag) under
+  # workflow_dispatch.
+  setup:
+    name: resolve release tag
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      tag: ${{ steps.resolve.outputs.tag }}
+      version: ${{ steps.resolve.outputs.version }}
+    steps:
+      - name: resolve tag
+        id: resolve
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          INPUT_TAG: ${{ github.event.inputs.tag }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          case "$EVENT_NAME" in
+            release)           tag="$RELEASE_TAG" ;;
+            workflow_dispatch) tag="$INPUT_TAG" ;;
+            push)              tag="$REF_NAME" ;;
+            *)                 tag="$REF_NAME" ;;
+          esac
+          if [ -z "$tag" ]; then
+            echo "error: could not resolve a release tag for event '$EVENT_NAME'" >&2
+            exit 1
+          fi
+          case "$tag" in
+            v*) : ;;
+            *)  echo "error: release tag '$tag' must start with 'v'" >&2; exit 1 ;;
+          esac
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "version=${tag#v}" >> "$GITHUB_OUTPUT"
+          echo "releasing tag: $tag (version ${tag#v})"
+
   # Re-run the full quality gate at the tagged commit so a release can never be
   # cut from a state that would fail CI (tags can point at commits that never
   # went through the PR gate). This mirrors the ci.yml checks.
   gate:
     name: pre-release quality gate
+    needs: [setup]
     runs-on: ubuntu-latest
     permissions:
       contents: read
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          # Always gate the code at the tag being released, not whatever branch
+          # a workflow_dispatch happened to run from.
+          ref: ${{ needs.setup.outputs.tag }}
 
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
@@ -89,8 +157,18 @@ jobs:
   # -------------------------------------------------------------------------
   release:
     name: goreleaser (build -> verify -> publish)
-    needs: [gate]
+    needs: [setup, gate]
     runs-on: ubuntu-latest
+    env:
+      # Single source of truth for the tag/version across every step below,
+      # resolved by the setup job so it is correct under push, release and
+      # workflow_dispatch alike (GITHUB_REF_NAME is a branch under dispatch).
+      RELEASE_TAG: ${{ needs.setup.outputs.tag }}
+      RELEASE_VERSION: ${{ needs.setup.outputs.version }}
+      # True when the run was triggered by publishing a GitHub Release from the
+      # web UI: the Release already exists (and is already visible), so
+      # goreleaser must upload assets to it rather than create a fresh draft.
+      RELEASE_PREEXISTS: ${{ github.event_name == 'release' }}
     permissions:
       # contents: write is required for goreleaser to create the (draft) GitHub
       # Release and upload archives/checksums.
@@ -108,8 +186,9 @@ jobs:
       - name: Checkout
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
-          # Full history is required for the changelog to diff against the
-          # previous tag.
+          # Build the exact tagged commit (not the dispatch branch), and keep
+          # full history so the changelog can diff against the previous tag.
+          ref: ${{ needs.setup.outputs.tag }}
           fetch-depth: 0
 
       - name: Set up Go
@@ -179,7 +258,7 @@ jobs:
       - name: verify release image allowlist
         run: |
           set -euo pipefail
-          version="${GITHUB_REF_NAME#v}"
+          version="$RELEASE_VERSION"
           image="soulteary/grantseal:${version}-amd64"
           echo "checking locally-built image: $image"
           if ! docker image inspect "$image" >/dev/null 2>&1; then
@@ -216,7 +295,7 @@ jobs:
         run: |
           set -euo pipefail
           # Extract the linux/amd64 binary from the just-built archive and run it.
-          version="${GITHUB_REF_NAME#v}"
+          version="$RELEASE_VERSION"
           arch_tar="dist/grantseal_${version}_linux_amd64.tar.gz"
           if [ ! -f "$arch_tar" ]; then
             arch_tar="$(find dist -maxdepth 1 -name 'grantseal_*_linux_amd64.tar.gz' | head -n1)"
@@ -246,12 +325,15 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      # Re-run goreleaser to PUBLISH: create the DRAFT GitHub Release, upload
-      # archives/checksums/SBOMs, push per-arch + manifest image tags, and cosign
-      # keyless-sign checksums/archives/images. The GitHub Release stays a draft
-      # (release.draft: true), so its tag/assets remain invisible until the
-      # PROMOTE step. COSIGN_YES answers the Fulcio/Rekor consent prompt.
-      - name: goreleaser publish (draft release + signed push)
+      # Re-run goreleaser to PUBLISH: upload archives/checksums/SBOMs, push
+      # per-arch + manifest image tags, and cosign keyless-sign
+      # checksums/archives/images. On tag-push / workflow_dispatch runs the
+      # GitHub Release is created as a DRAFT (release.draft: true) and stays
+      # invisible until the PROMOTE step. On a web-triggered `release:
+      # published` run the Release already exists, so goreleaser uploads the
+      # assets onto it (replace_existing_artifacts handles a re-run). COSIGN_YES
+      # answers the Fulcio/Rekor consent prompt.
+      - name: goreleaser publish (release + signed push)
         uses: goreleaser/goreleaser-action@f06c13b6b1a9625abc9e6e439d9c05a8f2190e94 # v7.2.3
         with:
           version: v2.17.1
@@ -289,7 +371,7 @@ jobs:
         id: imgdigest
         run: |
           set -euo pipefail
-          version="${GITHUB_REF_NAME#v}"
+          version="$RELEASE_VERSION"
           # goreleaser records docker manifests + their digests in metadata.
           digest="$(docker buildx imagetools inspect "soulteary/grantseal:${version}" \
             --format '{{ json .Manifest.Digest }}' 2>/dev/null | tr -d '"' || true)"
@@ -310,11 +392,21 @@ jobs:
       # The ONLY step that makes the tag/release/assets visible to consumers.
       # Runs last, so a failure in any prior verify/publish/attest step leaves
       # the release as an invisible draft that can be discarded.
+      #
+      # For tag-push / workflow_dispatch runs goreleaser created a DRAFT, so
+      # this flips it to published. For a web-triggered `release: published`
+      # run the Release is already visible and NOT a draft; `--draft=false` is
+      # then a harmless idempotent no-op that simply reasserts the published
+      # state.
       - name: promote draft release to published
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          tag="${GITHUB_REF_NAME}"
-          echo "promoting draft release $tag to published"
+          tag="$RELEASE_TAG"
+          if [ "$RELEASE_PREEXISTS" = "true" ]; then
+            echo "release '$tag' was published from the web UI; reasserting published state (no-op)"
+          else
+            echo "promoting draft release $tag to published"
+          fi
           gh release edit "$tag" --draft=false

@@ -67,8 +67,17 @@ checksum:
 # fails the draft is never promoted (and can be discarded), so users never see a
 # half-verified release. Image floating tags are only pushed in the publish
 # phase, which runs strictly after verification.
+#
+# Web-UI releases: when the release workflow is triggered by publishing a
+# GitHub Release from the web UI, the Release already EXISTS. goreleaser then
+# uploads assets onto that existing release instead of creating a new draft;
+# `mode: keep-existing` (the default) leaves the human-written release notes
+# untouched, and `replace_existing_artifacts` lets a re-run overwrite assets
+# instead of failing with a 422 "already_exists" error.
 release:
   draft: true
+  mode: keep-existing
+  replace_existing_artifacts: true
 
 # Software Bill of Materials (P1-6). goreleaser invokes syft to emit a CycloneDX
 # SBOM per built archive; the resulting *.sbom.json files are attached to the
