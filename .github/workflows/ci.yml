@@ -321,6 +321,37 @@ jobs:
       - name: verify snapshot archive allowlist
         run: bash scripts/check-archive-allowlist.sh dist
 
+      # Guard against a GoReleaser regression that pollutes checksums.txt with
+      # its own signature/certificate entries (goreleaser #6508/#6514:
+      # v2.15.0–v2.15.1 wrote checksums.txt.sig back INTO checksums.txt, breaking
+      # both cosign verify-blob AND `sha256sum -c`). v2.17.1's checksum pipe
+      # excludes Checksum/Signature/Certificate types, so this must stay clean;
+      # assert it on every push/PR so a future CLI bump that reintroduces the bug
+      # fails HERE (in the unsigned snapshot) instead of at release time.
+      #   - checksums.txt must NOT list itself, nor any .sig / .pem file. It MAY
+      #     (and does) list the *.sbom.cdx.json documents — SBOMs are ordinary
+      #     uploadable artifacts that goreleaser legitimately checksums, so they
+      #     must NOT be treated as pollution.
+      #   - `sha256sum -c --ignore-missing` must pass over the built artifacts
+      #     (the --ignore-missing form is the exact contract the READMEs and the
+      #     release workflow's post-publish verification use).
+      - name: verify snapshot checksums.txt is self-consistent
+        run: |
+          set -euo pipefail
+          cd dist
+          test -f checksums.txt || { echo "error: dist/checksums.txt not produced" >&2; exit 1; }
+          if grep -E '  (checksums\.txt|.*\.(sig|pem))$' checksums.txt; then
+            echo "error: checksums.txt lists signature/certificate/self entries" \
+                 "(GoReleaser checksum-pipe regression, see goreleaser #6508/#6514)" >&2
+            exit 1
+          fi
+          listed_archives="$(grep -c -E '  .*(\.tar\.gz|\.zip)$' checksums.txt || true)"
+          if [ "${listed_archives:-0}" -eq 0 ]; then
+            echo "error: checksums.txt lists no archives" >&2; exit 1
+          fi
+          sha256sum -c --ignore-missing checksums.txt
+          echo "snapshot checksums.txt is self-consistent ($listed_archives archives)"
+
   coverage-report-generate:
     name: coverage report (generate, no write)
     # Only regenerate the stable report/badge/JSON on pushes to the default

@@ -30,6 +30,12 @@ builds:
       # -s -w strips debug info; main.version is the CLI version variable
       # declared in cmd/license-tool/version.go.
       - -s -w -X main.version={{.Version}}
+    # Reproducible builds (P1-3 same-bytes guarantee): the release workflow
+    # builds once (--skip=publish) to verify the bytes, then re-runs goreleaser
+    # to publish and asserts the rebuilt archives/checksums are byte-identical.
+    # Pin the binary's embedded mod time to the commit timestamp (instead of the
+    # default "time goreleaser ran") so the two builds produce identical bytes.
+    mod_timestamp: "{{ .CommitTimestamp }}"
     goos:
       - linux
       - darwin
@@ -42,6 +48,15 @@ archives:
   - id: license-tool
     ids:
       - license-tool
+    # Reproducible archives (P1-3 same-bytes guarantee): force every entry in
+    # the tar.gz/zip to the commit timestamp instead of the archiving wall
+    # clock, so the verify-build and publish-build produce byte-identical
+    # archives (and therefore identical checksums.txt and signatures).
+    # v2.17.1 has no top-level archives.mtime; set it per entry source instead:
+    #   builds_info.mtime -> the packed binary
+    #   files[].info.mtime -> the extra files (LICENSE, README.md)
+    builds_info:
+      mtime: "{{ .CommitDate }}"
     # Use tar.gz everywhere except Windows, which gets a zip.
     formats: [tar.gz]
     format_overrides:
@@ -53,8 +68,12 @@ archives:
       {{- .Os }}_
       {{- .Arch }}
     files:
-      - LICENSE
-      - README.md
+      - src: LICENSE
+        info:
+          mtime: "{{ .CommitDate }}"
+      - src: README.md
+        info:
+          mtime: "{{ .CommitDate }}"
 
 checksum:
   name_template: "checksums.txt"
@@ -102,6 +121,18 @@ sboms:
 # to the release. The release workflow installs cosign (pinned) and grants
 # `id-token: write` ONLY to the publishing job. COSIGN_YES avoids the
 # interactive Fulcio/Rekor consent prompt in CI.
+#
+# cosign v3 defaults `sign-blob` to the new bundle format, which IGNORES
+# --output-signature / --output-certificate and instead demands a --bundle
+# path; without it cosign gets an empty bundle path and fails with
+# "create bundle file: open : no such file or directory". We keep emitting the
+# detached ${artifact}.sig + ${artifact}.pem pair (the verification contract
+# documented in the READMEs) by opting out of BOTH new-format behaviours:
+#   --new-bundle-format=false  -> re-enable --output-signature/--output-certificate
+#   --use-signing-config=false -> allow detached output without a --bundle
+# (v3 requires the latter too, else it errors "must provide --bundle with
+# --signing-config"). Both flags exist in cosign v3, which is what
+# cosign-installer pins here.
 signs:
   - id: checksums
     cmd: cosign
@@ -109,6 +140,8 @@ signs:
     certificate: "${artifact}.pem"
     args:
       - sign-blob
+      - "--new-bundle-format=false"
+      - "--use-signing-config=false"
       - "--output-signature=${signature}"
       - "--output-certificate=${certificate}"
       - "${artifact}"
@@ -121,6 +154,8 @@ signs:
     certificate: "${artifact}.pem"
     args:
       - sign-blob
+      - "--new-bundle-format=false"
+      - "--use-signing-config=false"
       - "--output-signature=${signature}"
       - "--output-certificate=${certificate}"
       - "${artifact}"
