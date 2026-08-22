@@ -25,7 +25,7 @@
 
 ## 总覆盖率
 
-- **总计：** `94.97%` 语句覆盖率（1661/1749）
+- **总计：** `94.61%` 语句覆盖率（1809/1912）
 - 覆盖率门禁（CI）：`93%`（实测总覆盖率向下取整；确保同一提交不会失败于自身门禁）
 
 根 README 的 Coverage 徽章由 CI 基于同一次运行生成。
@@ -34,10 +34,10 @@
 
 | 包 | 覆盖率 |
 | -- | ------ |
-| `pkg/license` | `96.0%` |
+| `pkg/license` | `95.4%` |
 | `pkg/fingerprint` | `96.2%` |
-| `internal/issuer` | `92.3%` |
-| `cmd/license-tool` | `93.0%` |
+| `internal/issuer` | `93.0%` |
+| `cmd/license-tool` | `92.9%` |
 | `examples/client` | `0.0%`（示例代码，无测试） |
 
 <!-- END:GENERATED-COVERAGE -->
