@@ -135,7 +135,7 @@ func TestSignPayloadStampsAndRejectsNil(t *testing.T) {
 	if p.KeyID != "k1" {
 		t.Fatalf("key_id not stamped: %q", p.KeyID)
 	}
-	if p.SchemaVersion != license.SchemaVersion {
+	if p.SchemaVersion != license.LicenseSchemaVersion {
 		t.Fatalf("schema version not stamped: %d", p.SchemaVersion)
 	}
 	if env.KeyID != "k1" || env.Algorithm != license.AlgorithmEd25519 {
@@ -284,8 +284,8 @@ func TestBuildPayloadExplicitAndTimePointers(t *testing.T) {
 	if p.DeviceBinding.Mode != license.DeviceModeNone {
 		t.Fatalf("DeviceBinding.Mode default = %q, want none", p.DeviceBinding.Mode)
 	}
-	if p.SchemaVersion != license.SchemaVersion {
-		t.Fatalf("schema version = %d, want %d", p.SchemaVersion, license.SchemaVersion)
+	if p.SchemaVersion != license.LicenseSchemaVersion {
+		t.Fatalf("schema version = %d, want %d", p.SchemaVersion, license.LicenseSchemaVersion)
 	}
 }
 
@@ -311,7 +311,7 @@ func TestBuildPayloadRandomIDAndSerialFormat(t *testing.T) {
 		t.Fatalf("license_id hex part length = %d, want 32 (%q)", len(hexPart), hexPart)
 	}
 	for _, c := range hexPart {
-		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')) {
+		if (c < '0' || c > '9') && (c < 'a' || c > 'f') {
 			t.Fatalf("license_id hex part contains non-hex char %q", c)
 		}
 	}

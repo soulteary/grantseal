@@ -98,13 +98,13 @@ func cmdIssue(args []string, stdout, stderr io.Writer) error {
 		return err
 	}
 	if *out == "" {
-		fmt.Fprintln(stdout, string(data))
+		fprintln(stdout, string(data))
 		return nil
 	}
 	if err := writeFileNoClobber(*out, data, 0o644, *force); err != nil {
 		return err
 	}
-	fmt.Fprintf(stderr, "issued license -> %s\n", *out)
+	fprintf(stderr, "issued license -> %s\n", *out)
 	return nil
 }
 

@@ -39,7 +39,7 @@ func (s *Signer) SignPayload(p *license.Payload) (*license.Envelope, error) {
 	}
 	p.KeyID = s.keyID
 	if p.SchemaVersion == 0 {
-		p.SchemaVersion = license.SchemaVersion
+		p.SchemaVersion = license.LicenseSchemaVersion
 	}
 	if err := license.ValidatePayloadStatic(p); err != nil {
 		return nil, fmt.Errorf("issuer: invalid license: %w", err)

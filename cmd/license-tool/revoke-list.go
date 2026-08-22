@@ -88,7 +88,7 @@ func cmdRevokeList(args []string, stdout, stderr io.Writer) error {
 
 	var env *license.RevocationEnvelope
 	if *f.v1 {
-		env, err = issuer.BuildRevocationList(signer, revoked)
+		env, err = issuer.BuildRevocationList(signer, revoked) //nolint:staticcheck // -v1 intentionally emits a legacy v1 list
 	} else {
 		env, err = buildRevocationV2(signer, revoked, *f.listID, *f.sequence, *f.expiresAt, *f.ttl)
 	}
@@ -100,13 +100,13 @@ func cmdRevokeList(args []string, stdout, stderr io.Writer) error {
 		return err
 	}
 	if *f.out == "" {
-		fmt.Fprintln(stdout, string(data))
+		fprintln(stdout, string(data))
 		return nil
 	}
 	if err := writeFileNoClobber(*f.out, data, 0o644, *f.force); err != nil {
 		return err
 	}
-	fmt.Fprintf(stderr, "wrote revocation list -> %s (%d ids)\n", *f.out, len(revoked))
+	fprintf(stderr, "wrote revocation list -> %s (%d ids)\n", *f.out, len(revoked))
 	return nil
 }
 

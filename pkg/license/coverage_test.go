@@ -290,7 +290,7 @@ func TestLifetimeToleratesCorruptRollbackState(t *testing.T) {
 
 func TestLoadRevocationListWrongKeyID(t *testing.T) {
 	s, pub := testKeyPair(t, "k1")
-	env, err := issuer.BuildRevocationList(s, []string{"lic_x"})
+	env, err := issuer.BuildRevocationList(s, []string{"lic_x"}) //nolint:staticcheck // intentionally builds a legacy v1 list
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -304,7 +304,7 @@ func TestLoadRevocationListWrongKeyID(t *testing.T) {
 
 func TestLoadRevocationListBadSignature(t *testing.T) {
 	s, pub := testKeyPair(t, "k1")
-	env, err := issuer.BuildRevocationList(s, []string{"lic_x"})
+	env, err := issuer.BuildRevocationList(s, []string{"lic_x"}) //nolint:staticcheck // intentionally builds a legacy v1 list
 	if err != nil {
 		t.Fatal(err)
 	}

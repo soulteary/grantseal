@@ -173,7 +173,7 @@ func TestLoadAndValidateArms(t *testing.T) {
 	if err := os.WriteFile(big, make([]byte, MaxLicenseFileSize+1), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	res, err = mgr.LoadAndValidate(big, ValidationContext{ProductID: "p"})
+	_, err = mgr.LoadAndValidate(big, ValidationContext{ProductID: "p"})
 	if CodeOf(err) != CodeFileTooLarge {
 		t.Fatalf("too large: want CodeFileTooLarge, got %v", err)
 	}

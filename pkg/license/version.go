@@ -138,7 +138,7 @@ func isNumericID(s string) bool {
 func isValidPrereleaseID(id string) bool {
 	if isNumericID(id) {
 		// Numeric identifiers must not have leading zeros.
-		return !(len(id) > 1 && id[0] == '0')
+		return len(id) <= 1 || id[0] != '0'
 	}
 	return isAlphanumericID(id)
 }
@@ -150,7 +150,7 @@ func isAlphanumericID(s string) bool {
 	}
 	for i := 0; i < len(s); i++ {
 		c := s[i]
-		if !(c >= '0' && c <= '9' || c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c == '-') {
+		if (c < '0' || c > '9') && (c < 'a' || c > 'z') && (c < 'A' || c > 'Z') && c != '-' {
 			return false
 		}
 	}

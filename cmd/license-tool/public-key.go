@@ -4,7 +4,6 @@ import (
 	"crypto/ed25519"
 	"encoding/base64"
 	"flag"
-	"fmt"
 	"io"
 
 	"github.com/soulteary/grantseal/internal/issuer"
@@ -25,6 +24,6 @@ func cmdPublicKey(args []string, stdout, stderr io.Writer) error {
 		return err
 	}
 	pub := priv.Public().(ed25519.PublicKey)
-	fmt.Fprintln(stdout, base64.URLEncoding.EncodeToString(pub))
+	fprintln(stdout, base64.URLEncoding.EncodeToString(pub))
 	return nil
 }

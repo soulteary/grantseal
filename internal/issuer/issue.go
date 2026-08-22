@@ -57,7 +57,7 @@ func BuildPayload(req IssueRequest) (*license.Payload, error) {
 	}
 
 	p := &license.Payload{
-		SchemaVersion:     license.SchemaVersion,
+		SchemaVersion:     license.LicenseSchemaVersion,
 		LicenseID:         licenseID,
 		SerialNumber:      serial,
 		ProductID:         req.ProductID,
@@ -96,7 +96,7 @@ func Issue(s *Signer, req IssueRequest) (*license.Envelope, error) {
 	}
 	p.KeyID = s.KeyID()
 	if p.SchemaVersion == 0 {
-		p.SchemaVersion = license.SchemaVersion
+		p.SchemaVersion = license.LicenseSchemaVersion
 	}
 	if err := license.ValidatePayloadStatic(p); err != nil {
 		return nil, fmt.Errorf("issuer: invalid license: %w", err)

@@ -77,7 +77,7 @@ func TestAllowLegacyV1RevocationHelper(t *testing.T) {
 	ring := ringWith(t, "k1", pub)
 	now := time.Now().UTC()
 
-	v1env, err := issuer.BuildRevocationList(s, []string{"lic_x"})
+	v1env, err := issuer.BuildRevocationList(s, []string{"lic_x"}) //nolint:staticcheck // intentionally builds a legacy v1 list
 	if err != nil {
 		t.Fatalf("build v1 revocation: %v", err)
 	}

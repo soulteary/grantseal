@@ -2,7 +2,6 @@ package main
 
 import (
 	"flag"
-	"fmt"
 	"io"
 )
 
@@ -16,6 +15,6 @@ func cmdVersion(args []string, stdout, stderr io.Writer) error {
 	if err := parseFlags(fs, args); err != nil {
 		return err
 	}
-	fmt.Fprintf(stdout, "license-tool %s\n", version)
+	fprintf(stdout, "license-tool %s\n", version)
 	return nil
 }

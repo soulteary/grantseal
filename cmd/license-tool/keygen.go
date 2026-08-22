@@ -2,7 +2,6 @@ package main
 
 import (
 	"flag"
-	"fmt"
 	"io"
 
 	"github.com/soulteary/grantseal/internal/issuer"
@@ -29,9 +28,9 @@ func cmdKeygen(args []string, stdout, stderr io.Writer) error {
 		return err
 	}
 	// Never print the private key material itself; only its path.
-	fmt.Fprintf(stdout, "key_id:      %s\n", kp.KeyID)
-	fmt.Fprintf(stdout, "private_key: %s (mode 0600 - keep secret, never commit)\n", privPath)
-	fmt.Fprintf(stdout, "public_key:  %s\n", pubPath)
-	fmt.Fprintf(stdout, "public_b64:  %s\n", kp.PublicKeyBase64())
+	fprintf(stdout, "key_id:      %s\n", kp.KeyID)
+	fprintf(stdout, "private_key: %s (mode 0600 - keep secret, never commit)\n", privPath)
+	fprintf(stdout, "public_key:  %s\n", pubPath)
+	fprintf(stdout, "public_b64:  %s\n", kp.PublicKeyBase64())
 	return nil
 }

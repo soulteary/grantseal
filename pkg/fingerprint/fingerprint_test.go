@@ -99,7 +99,7 @@ func TestRequestCodeFormat(t *testing.T) {
 		t.Fatalf("expected grouped code containing '-', got %q", code)
 	}
 	for _, r := range code {
-		if !((r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '-') {
+		if (r < 'A' || r > 'Z') && (r < '0' || r > '9') && r != '-' {
 			t.Fatalf("code contains invalid character %q in %q", r, code)
 		}
 	}

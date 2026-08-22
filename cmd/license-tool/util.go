@@ -17,6 +17,16 @@ import (
 
 func timeNow() time.Time { return time.Now().UTC() }
 
+// fprintf, fprintln, and fprint wrap the fmt.Fprint* helpers for writes to the
+// CLI's stdout/stderr where a write error is not actionable (the process is
+// already emitting its final output). They exist so call sites stay terse while
+// intentionally discarding the unrecoverable write error.
+func fprintf(w io.Writer, format string, args ...any) { _, _ = fmt.Fprintf(w, format, args...) }
+
+func fprintln(w io.Writer, args ...any) { _, _ = fmt.Fprintln(w, args...) }
+
+func fprint(w io.Writer, args ...any) { _, _ = fmt.Fprint(w, args...) }
+
 // usageError marks an error as a command-usage problem (missing/invalid flags,
 // unknown flags, bad enum/duration/RFC3339 input) so run maps it to exit code 2,
 // distinct from runtime failures (exit 1). It optionally wraps an underlying

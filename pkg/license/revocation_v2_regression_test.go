@@ -59,7 +59,7 @@ func TestRevocationV1RejectedByDefault(t *testing.T) {
 	ring := ringWith(t, "k1", pub)
 	now := time.Now().UTC()
 
-	v1env, err := issuer.BuildRevocationList(s, []string{"lic_x"}) // legacy v1
+	v1env, err := issuer.BuildRevocationList(s, []string{"lic_x"}) //nolint:staticcheck // legacy v1
 	if err != nil {
 		t.Fatalf("build v1 revocation: %v", err)
 	}

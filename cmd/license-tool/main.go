@@ -9,7 +9,6 @@ package main
 import (
 	"errors"
 	"flag"
-	"fmt"
 	"io"
 	"os"
 )
@@ -56,7 +55,7 @@ const (
 // (flag.ErrHelp and *usageError) rather than matching error strings.
 func run(args []string, stdout, stderr io.Writer) int {
 	if len(args) < 1 {
-		fmt.Fprint(stderr, usage)
+		fprint(stderr, usage)
 		return exitUsage
 	}
 	cmd := args[0]
@@ -81,10 +80,10 @@ func run(args []string, stdout, stderr io.Writer) int {
 	case "version", "--version", "-v":
 		err = cmdVersion(rest, stdout, stderr)
 	case "-h", "--help", "help":
-		fmt.Fprint(stdout, usage)
+		fprint(stdout, usage)
 		return exitOK
 	default:
-		fmt.Fprintf(stderr, "unknown command %q\n\n%s", cmd, usage)
+		fprintf(stderr, "unknown command %q\n\n%s", cmd, usage)
 		return exitUsage
 	}
 
@@ -105,9 +104,9 @@ func classify(err error, stderr io.Writer) int {
 	}
 	var ue *usageError
 	if errors.As(err, &ue) {
-		fmt.Fprintf(stderr, "error: %v\n", err)
+		fprintf(stderr, "error: %v\n", err)
 		return exitUsage
 	}
-	fmt.Fprintf(stderr, "error: %v\n", err)
+	fprintf(stderr, "error: %v\n", err)
 	return exitRuntime
 }

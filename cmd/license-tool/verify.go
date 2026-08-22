@@ -89,18 +89,18 @@ func cmdVerify(args []string, stdout, stderr io.Writer) error {
 }
 
 func printResult(w io.Writer, res license.ValidationResult) {
-	fmt.Fprintf(w, "status:      %s\n", res.Status())
-	fmt.Fprintf(w, "code:        %s\n", res.Code())
+	fprintf(w, "status:      %s\n", res.Status())
+	fprintf(w, "code:        %s\n", res.Code())
 	if res.LicenseID() != "" {
-		fmt.Fprintf(w, "license_id:  %s\n", res.LicenseID())
-		fmt.Fprintf(w, "product_id:  %s\n", res.ProductID())
-		fmt.Fprintf(w, "edition:     %s\n", res.Edition())
-		fmt.Fprintf(w, "type:        %s\n", res.LicenseType())
+		fprintf(w, "license_id:  %s\n", res.LicenseID())
+		fprintf(w, "product_id:  %s\n", res.ProductID())
+		fprintf(w, "edition:     %s\n", res.Edition())
+		fprintf(w, "type:        %s\n", res.LicenseType())
 		if exp := res.ExpiresAt(); exp != nil {
-			fmt.Fprintf(w, "expires_at:  %s\n", exp.Format("2006-01-02T15:04:05Z07:00"))
+			fprintf(w, "expires_at:  %s\n", exp.Format("2006-01-02T15:04:05Z07:00"))
 		}
 		if feats := res.Features(); len(feats) > 0 {
-			fmt.Fprintf(w, "features:    %s\n", strings.Join(feats, ", "))
+			fprintf(w, "features:    %s\n", strings.Join(feats, ", "))
 		}
 	}
 }

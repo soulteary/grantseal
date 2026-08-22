@@ -47,7 +47,7 @@ func cmdFingerprint(args []string, stdout, stderr io.Writer) error {
 		if cerr != nil {
 			return cerr
 		}
-		fmt.Fprintln(stdout, rc)
+		fprintln(stdout, rc)
 		return nil
 	}
 	if *jsonOut {
@@ -55,9 +55,9 @@ func cmdFingerprint(args []string, stdout, stderr io.Writer) error {
 		if merr != nil {
 			return merr
 		}
-		fmt.Fprintln(stdout, string(b))
+		fprintln(stdout, string(b))
 		return nil
 	}
-	fmt.Fprintln(stdout, fp.Fingerprint)
+	fprintln(stdout, fp.Fingerprint)
 	return nil
 }
