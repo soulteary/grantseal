@@ -71,21 +71,31 @@ func parseVersion(v string) (semver, bool) {
 
 	sv := semver{major: nums[0], minor: nums[1], patch: nums[2]}
 	if hasPre {
-		if pre == "" {
-			return semver{}, false // trailing '-' with empty prerelease
-		}
-		ids := strings.Split(pre, ".")
-		if len(ids) == 0 || 3+len(ids) > maxVersionComponents {
+		ids, ok := parsePrerelease(pre)
+		if !ok {
 			return semver{}, false
-		}
-		for _, id := range ids {
-			if id == "" || !isValidPrereleaseID(id) {
-				return semver{}, false
-			}
 		}
 		sv.prerelease = ids
 	}
 	return sv, true
+}
+
+// parsePrerelease validates and splits a SemVer prerelease string (the part
+// after '-') into its dot-separated identifiers.
+func parsePrerelease(pre string) ([]string, bool) {
+	if pre == "" {
+		return nil, false // trailing '-' with empty prerelease
+	}
+	ids := strings.Split(pre, ".")
+	if len(ids) == 0 || 3+len(ids) > maxVersionComponents {
+		return nil, false
+	}
+	for _, id := range ids {
+		if id == "" || !isValidPrereleaseID(id) {
+			return nil, false
+		}
+	}
+	return ids, true
 }
 
 // parseNumericID parses a SemVer numeric identifier: digits only, no leading

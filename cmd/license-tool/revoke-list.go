@@ -12,32 +12,42 @@ import (
 	"github.com/soulteary/grantseal/pkg/license"
 )
 
-func cmdRevokeList(args []string, stdout, stderr io.Writer) error {
-	fs := flag.NewFlagSet("revoke-list", flag.ContinueOnError)
-	fs.SetOutput(stderr)
-	keyPath := fs.String("key", "", "path to the private key file (required)")
-	keyID := fs.String("key-id", "", "key_id for the signature (required)")
-	ids := fs.String("ids", "", "comma-separated license_ids to revoke")
-	idsFile := fs.String("ids-file", "", "file with one license_id per line")
-	listID := fs.String("list-id", "", "logical list id (v2; keeps a separate client high-water mark)")
-	sequence := fs.Uint64("sequence", 0, "v2 monotonically increasing publication counter (required unless -v1)")
-	expiresAt := fs.String("expires-at", "", "v2 expiry as RFC3339 (e.g. 2026-12-31T00:00:00Z); mutually exclusive with -ttl")
-	ttl := fs.Duration("ttl", 0, "v2 time-to-live from now (e.g. 720h); mutually exclusive with -expires-at")
-	v1 := fs.Bool("v1", false, "emit a LEGACY v1 list (no replay resistance; clients must opt in to accept)")
-	out := fs.String("out", "", "output revocation file path (default stdout)")
-	force := fs.Bool("force", false, "overwrite existing output file")
-	if err := parseFlags(fs, args); err != nil {
-		return err
-	}
-	if *keyPath == "" || *keyID == "" {
-		return &usageError{msg: "revoke-list: -key and -key-id are required"}
-	}
+// revokeListFlags holds the parsed flags for the revoke-list subcommand.
+type revokeListFlags struct {
+	keyPath, keyID *string
+	ids, idsFile   *string
+	listID         *string
+	sequence       *uint64
+	expiresAt      *string
+	ttl            *time.Duration
+	v1, force      *bool
+	out            *string
+}
 
-	revoked := splitCSV(*ids)
-	if *idsFile != "" {
-		data, err := os.ReadFile(*idsFile)
+func registerRevokeListFlags(fs *flag.FlagSet) *revokeListFlags {
+	return &revokeListFlags{
+		keyPath:   fs.String("key", "", "path to the private key file (required)"),
+		keyID:     fs.String("key-id", "", "key_id for the signature (required)"),
+		ids:       fs.String("ids", "", "comma-separated license_ids to revoke"),
+		idsFile:   fs.String("ids-file", "", "file with one license_id per line"),
+		listID:    fs.String("list-id", "", "logical list id (v2; keeps a separate client high-water mark)"),
+		sequence:  fs.Uint64("sequence", 0, "v2 monotonically increasing publication counter (required unless -v1)"),
+		expiresAt: fs.String("expires-at", "", "v2 expiry as RFC3339 (e.g. 2026-12-31T00:00:00Z); mutually exclusive with -ttl"),
+		ttl:       fs.Duration("ttl", 0, "v2 time-to-live from now (e.g. 720h); mutually exclusive with -expires-at"),
+		v1:        fs.Bool("v1", false, "emit a LEGACY v1 list (no replay resistance; clients must opt in to accept)"),
+		out:       fs.String("out", "", "output revocation file path (default stdout)"),
+		force:     fs.Bool("force", false, "overwrite existing output file"),
+	}
+}
+
+// collectRevokedIDs gathers license_ids from the -ids CSV flag and, when set,
+// the -ids-file (one per line).
+func collectRevokedIDs(ids, idsFile string) ([]string, error) {
+	revoked := splitCSV(ids)
+	if idsFile != "" {
+		data, err := os.ReadFile(idsFile)
 		if err != nil {
-			return fmt.Errorf("revoke-list: read ids-file: %w", err)
+			return nil, fmt.Errorf("revoke-list: read ids-file: %w", err)
 		}
 		for _, line := range strings.Split(string(data), "\n") {
 			line = strings.TrimSpace(line)
@@ -47,23 +57,41 @@ func cmdRevokeList(args []string, stdout, stderr io.Writer) error {
 		}
 	}
 	if len(revoked) == 0 {
-		return &usageError{msg: "revoke-list: no license_ids provided"}
+		return nil, &usageError{msg: "revoke-list: no license_ids provided"}
+	}
+	return revoked, nil
+}
+
+func cmdRevokeList(args []string, stdout, stderr io.Writer) error {
+	fs := flag.NewFlagSet("revoke-list", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	f := registerRevokeListFlags(fs)
+	if err := parseFlags(fs, args); err != nil {
+		return err
+	}
+	if *f.keyPath == "" || *f.keyID == "" {
+		return &usageError{msg: "revoke-list: -key and -key-id are required"}
 	}
 
-	priv, err := issuer.LoadPrivateKey(*keyPath)
+	revoked, err := collectRevokedIDs(*f.ids, *f.idsFile)
 	if err != nil {
 		return err
 	}
-	signer, err := issuer.NewSigner(*keyID, priv)
+
+	priv, err := issuer.LoadPrivateKey(*f.keyPath)
+	if err != nil {
+		return err
+	}
+	signer, err := issuer.NewSigner(*f.keyID, priv)
 	if err != nil {
 		return err
 	}
 
 	var env *license.RevocationEnvelope
-	if *v1 {
+	if *f.v1 {
 		env, err = issuer.BuildRevocationList(signer, revoked)
 	} else {
-		env, err = buildRevocationV2(signer, revoked, *listID, *sequence, *expiresAt, *ttl)
+		env, err = buildRevocationV2(signer, revoked, *f.listID, *f.sequence, *f.expiresAt, *f.ttl)
 	}
 	if err != nil {
 		return err
@@ -72,14 +100,14 @@ func cmdRevokeList(args []string, stdout, stderr io.Writer) error {
 	if err != nil {
 		return err
 	}
-	if *out == "" {
+	if *f.out == "" {
 		fmt.Fprintln(stdout, string(data))
 		return nil
 	}
-	if err := writeFileNoClobber(*out, data, 0o644, *force); err != nil {
+	if err := writeFileNoClobber(*f.out, data, 0o644, *f.force); err != nil {
 		return err
 	}
-	fmt.Fprintf(stderr, "wrote revocation list -> %s (%d ids)\n", *out, len(revoked))
+	fmt.Fprintf(stderr, "wrote revocation list -> %s (%d ids)\n", *f.out, len(revoked))
 	return nil
 }
 
