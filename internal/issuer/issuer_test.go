@@ -206,16 +206,17 @@ func TestBuildRevocationListV2(t *testing.T) {
 	expires := issued.Add(24 * time.Hour)
 
 	bad := []issuer.RevocationListOptions{
-		{Sequence: 0, IssuedAt: issued, ExpiresAt: expires},                // sequence must be > 0
-		{Sequence: 1, ExpiresAt: expires},                                  // missing issued_at
-		{Sequence: 1, IssuedAt: issued, ExpiresAt: issued.Add(-time.Hour)}, // expires before issued
+		{Sequence: 1, IssuedAt: issued, ExpiresAt: expires},                                   // missing list_id
+		{ListID: "default", Sequence: 0, IssuedAt: issued, ExpiresAt: expires},                // sequence must be > 0
+		{ListID: "default", Sequence: 1, ExpiresAt: expires},                                  // missing issued_at
+		{ListID: "default", Sequence: 1, IssuedAt: issued, ExpiresAt: issued.Add(-time.Hour)}, // expires before issued
 	}
 	for i, opts := range bad {
 		if _, err := issuer.BuildRevocationListV2(s, opts); err == nil {
 			t.Fatalf("bad options[%d] unexpectedly accepted", i)
 		}
 	}
-	if _, err := issuer.BuildRevocationListV2(nil, issuer.RevocationListOptions{Sequence: 1, IssuedAt: issued, ExpiresAt: expires}); err == nil {
+	if _, err := issuer.BuildRevocationListV2(nil, issuer.RevocationListOptions{ListID: "default", Sequence: 1, IssuedAt: issued, ExpiresAt: expires}); err == nil {
 		t.Fatal("nil signer unexpectedly accepted")
 	}
 
@@ -247,6 +248,54 @@ func TestBuildRevocationListV2(t *testing.T) {
 	}
 	if rl.IsRevoked("") {
 		t.Fatal("empty id must not be treated as revoked")
+	}
+}
+
+// TestBuildRevocationListV2ContractLoadableByDefaultClient is the issuer/client
+// contract: every v2 list the issuer successfully signs MUST be accepted by the
+// default client policy (LoadRevocationList). This guards against the class of
+// bug where the issuer accepts options the client's static validator rejects as
+// LICENSE_MALFORMED (e.g. an omitted list_id).
+func TestBuildRevocationListV2ContractLoadableByDefaultClient(t *testing.T) {
+	kp, _ := issuer.GenerateKeyPair("k1")
+	s, err := issuer.NewSigner(kp.KeyID, kp.PrivateKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ring := license.NewKeyRing()
+	if err := ring.AddPublicKeyBase64("k1", base64.URLEncoding.EncodeToString(kp.PublicKey)); err != nil {
+		t.Fatal(err)
+	}
+
+	issued := time.Unix(1_700_000_000, 0).UTC()
+	// A representative matrix of option shapes the issuer must either reject or
+	// produce a default-client-loadable list for. There is no accepted shape
+	// that the default client rejects.
+	cases := []issuer.RevocationListOptions{
+		{ListID: "default", Sequence: 1, IssuedAt: issued, ExpiresAt: issued.Add(24 * time.Hour)},
+		{ListID: "l", Sequence: 1<<63 + 1, IssuedAt: issued, ExpiresAt: issued.Add(time.Minute), RevokedIDs: []string{"a"}},
+		{ListID: "list-with-many", Sequence: 42, IssuedAt: issued, ExpiresAt: issued.Add(365 * 24 * time.Hour), RevokedIDs: []string{"x", "y", "z"}},
+		// Shapes the issuer must reject outright (never emitted to a client):
+		{Sequence: 1, IssuedAt: issued, ExpiresAt: issued.Add(time.Hour)},              // no list_id
+		{ListID: "l", Sequence: 0, IssuedAt: issued, ExpiresAt: issued.Add(time.Hour)}, // no sequence
+		{ListID: "l", Sequence: 1, ExpiresAt: issued.Add(time.Hour)},                   // no issued_at
+		{ListID: "l", Sequence: 1, IssuedAt: issued, ExpiresAt: issued},                // expires == issued
+	}
+	for i, opts := range cases {
+		env, err := issuer.BuildRevocationListV2(s, opts)
+		if err != nil {
+			// The issuer rejected it; that is allowed. The contract only
+			// requires that anything successfully signed is loadable.
+			continue
+		}
+		data, mErr := json.Marshal(env)
+		if mErr != nil {
+			t.Fatalf("case[%d]: marshal: %v", i, mErr)
+		}
+		// Verify with the DEFAULT client policy at a time inside the window.
+		if _, lErr := license.LoadRevocationList(ring, data, opts.IssuedAt.Add(time.Second)); lErr != nil {
+			t.Fatalf("case[%d]: issuer signed a list the default client rejected: %v", i, lErr)
+		}
 	}
 }
 

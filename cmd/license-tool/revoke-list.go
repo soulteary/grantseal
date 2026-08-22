@@ -30,7 +30,7 @@ func registerRevokeListFlags(fs *flag.FlagSet) *revokeListFlags {
 		keyID:     fs.String("key-id", "", "key_id for the signature (required)"),
 		ids:       fs.String("ids", "", "comma-separated license_ids to revoke"),
 		idsFile:   fs.String("ids-file", "", "file with one license_id per line"),
-		listID:    fs.String("list-id", "", "logical list id (v2; keeps a separate client high-water mark)"),
+		listID:    fs.String("list-id", "", "logical list id (v2; required; keeps a separate client high-water mark)"),
 		sequence:  fs.Uint64("sequence", 0, "v2 monotonically increasing publication counter (required unless -v1)"),
 		expiresAt: fs.String("expires-at", "", "v2 expiry as RFC3339 (e.g. 2026-12-31T00:00:00Z); mutually exclusive with -ttl"),
 		ttl:       fs.Duration("ttl", 0, "v2 time-to-live from now (e.g. 720h); mutually exclusive with -expires-at"),
@@ -114,6 +114,9 @@ func cmdRevokeList(args []string, stdout, stderr io.Writer) error {
 // buildRevocationV2 assembles a v2 revocation list from CLI flags, enforcing
 // that a sequence is present and exactly one expiry source is provided.
 func buildRevocationV2(signer *issuer.Signer, revoked []string, listID string, sequence uint64, expiresAt string, ttl time.Duration) (*license.RevocationEnvelope, error) {
+	if listID == "" {
+		return nil, &usageError{msg: "revoke-list: -list-id is required for v2 lists (use -v1 for a legacy list)"}
+	}
 	if sequence == 0 {
 		return nil, &usageError{msg: "revoke-list: -sequence is required for v2 lists (use -v1 for a legacy list)"}
 	}

@@ -271,7 +271,7 @@ func TestCmdIssueMissingKeyFile(t *testing.T) {
 // v2 lists require -sequence; without it the build fails as a usage error.
 func TestCmdRevokeListV2RequiresSequence(t *testing.T) {
 	_, privPath, _ := newTestKeyPair(t, "k1")
-	_, err := callCmd(cmdRevokeList, []string{"-key", privPath, "-key-id", "k1", "-ids", "lic_a", "-ttl", "1h"})
+	_, err := callCmd(cmdRevokeList, []string{"-key", privPath, "-key-id", "k1", "-ids", "lic_a", "-list-id", "list-1", "-ttl", "1h"})
 	if err == nil {
 		t.Fatal("expected error when -sequence missing for v2")
 	}
@@ -289,7 +289,7 @@ func TestCmdRevokeListV2ExpiryMutuallyExclusive(t *testing.T) {
 	_, privPath, _ := newTestKeyPair(t, "k1")
 	_, err := callCmd(cmdRevokeList, []string{
 		"-key", privPath, "-key-id", "k1", "-ids", "lic_a",
-		"-sequence", "1", "-ttl", "1h", "-expires-at", "2999-01-01T00:00:00Z",
+		"-sequence", "1", "-list-id", "list-1", "-ttl", "1h", "-expires-at", "2999-01-01T00:00:00Z",
 	})
 	if err == nil {
 		t.Fatal("expected error for -expires-at + -ttl together")
@@ -299,7 +299,7 @@ func TestCmdRevokeListV2ExpiryMutuallyExclusive(t *testing.T) {
 // v2 requires an expiry source; neither -ttl nor -expires-at fails.
 func TestCmdRevokeListV2RequiresExpiry(t *testing.T) {
 	_, privPath, _ := newTestKeyPair(t, "k1")
-	_, err := callCmd(cmdRevokeList, []string{"-key", privPath, "-key-id", "k1", "-ids", "lic_a", "-sequence", "1"})
+	_, err := callCmd(cmdRevokeList, []string{"-key", privPath, "-key-id", "k1", "-ids", "lic_a", "-list-id", "list-1", "-sequence", "1"})
 	if err == nil {
 		t.Fatal("expected error when no expiry provided for v2")
 	}
@@ -310,7 +310,7 @@ func TestCmdRevokeListV2BadExpiresAt(t *testing.T) {
 	_, privPath, _ := newTestKeyPair(t, "k1")
 	_, err := callCmd(cmdRevokeList, []string{
 		"-key", privPath, "-key-id", "k1", "-ids", "lic_a",
-		"-sequence", "1", "-expires-at", "nope",
+		"-sequence", "1", "-list-id", "list-1", "-expires-at", "nope",
 	})
 	if err == nil {
 		t.Fatal("expected error for malformed -expires-at")
@@ -380,7 +380,7 @@ func TestCmdRevokeListV1Legacy(t *testing.T) {
 func TestCmdRevokeListForce(t *testing.T) {
 	dir, privPath, _ := newTestKeyPair(t, "k1")
 	revPath := filepath.Join(dir, "revocation.json")
-	args := []string{"-key", privPath, "-key-id", "k1", "-ids", "lic_a", "-sequence", "1", "-ttl", "1h", "-out", revPath}
+	args := []string{"-key", privPath, "-key-id", "k1", "-ids", "lic_a", "-sequence", "1", "-ttl", "1h", "-list-id", "list-1", "-out", revPath}
 	if _, err := callCmd(cmdRevokeList, args); err != nil {
 		t.Fatalf("first write: %v", err)
 	}
@@ -580,7 +580,7 @@ func TestCmdRevokeListUnwritableOut(t *testing.T) {
 	out := filepath.Join(roDir, "revocation.json")
 	if _, err := callCmd(cmdRevokeList, []string{
 		"-key", privPath, "-key-id", "k1", "-ids", "lic_a",
-		"-sequence", "1", "-ttl", "1h", "-out", out,
+		"-sequence", "1", "-ttl", "1h", "-list-id", "list-1", "-out", out,
 	}); err == nil {
 		t.Fatal("expected error writing revocation list into a non-writable directory")
 	}

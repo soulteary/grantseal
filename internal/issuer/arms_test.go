@@ -22,14 +22,17 @@ func TestBuildRevocationListV2Arms(t *testing.T) {
 		t.Fatal("nil signer: want error")
 	}
 	s := newTestSigner(t)
-	if _, err := BuildRevocationListV2(s, RevocationListOptions{Sequence: 0}); err == nil {
+	if _, err := BuildRevocationListV2(s, RevocationListOptions{Sequence: 1, IssuedAt: time.Now().UTC(), ExpiresAt: time.Now().Add(time.Hour)}); err == nil {
+		t.Fatal("empty list_id: want error")
+	}
+	if _, err := BuildRevocationListV2(s, RevocationListOptions{ListID: "l", Sequence: 0}); err == nil {
 		t.Fatal("zero sequence: want error")
 	}
-	if _, err := BuildRevocationListV2(s, RevocationListOptions{Sequence: 1}); err == nil {
+	if _, err := BuildRevocationListV2(s, RevocationListOptions{ListID: "l", Sequence: 1}); err == nil {
 		t.Fatal("zero issued_at: want error")
 	}
 	now := time.Now().UTC()
-	if _, err := BuildRevocationListV2(s, RevocationListOptions{Sequence: 1, IssuedAt: now, ExpiresAt: now.Add(-time.Hour)}); err == nil {
+	if _, err := BuildRevocationListV2(s, RevocationListOptions{ListID: "l", Sequence: 1, IssuedAt: now, ExpiresAt: now.Add(-time.Hour)}); err == nil {
 		t.Fatal("expires before issued: want error")
 	}
 }

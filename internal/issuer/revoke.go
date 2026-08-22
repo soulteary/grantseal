@@ -38,10 +38,11 @@ func BuildRevocationList(s *Signer, revokedIDs []string) (*license.RevocationEnv
 	}, nil
 }
 
-// RevocationListOptions configures a v2 revocation list. Sequence must be set
-// (a monotonically increasing publication counter); IssuedAt/ExpiresAt define
-// the freshness window (ExpiresAt must be after IssuedAt). ListID is optional
-// and lets independent lists keep separate client high-water marks.
+// RevocationListOptions configures a v2 revocation list. ListID is required (a
+// logical list identifier that lets independent lists keep separate client
+// high-water marks); Sequence must be set (a monotonically increasing
+// publication counter); IssuedAt/ExpiresAt define the freshness window
+// (ExpiresAt must be after IssuedAt).
 type RevocationListOptions struct {
 	ListID     string
 	Sequence   uint64
@@ -54,12 +55,15 @@ type RevocationListOptions struct {
 // canonicalized and signed with the revocation signing domain so clients verify
 // it against the same public KeyRing and enforce sequence/freshness.
 //
-// It validates that Sequence > 0, IssuedAt is set, and ExpiresAt is after
-// IssuedAt, mirroring the client's acceptance rules so an issuer cannot mint a
-// list the client would reject as malformed.
+// It validates that ListID is non-empty, Sequence > 0, IssuedAt is set, and
+// ExpiresAt is after IssuedAt, mirroring the client's acceptance rules so an
+// issuer cannot mint a list the client would reject as malformed.
 func BuildRevocationListV2(s *Signer, opts RevocationListOptions) (*license.RevocationEnvelope, error) {
 	if s == nil {
 		return nil, fmt.Errorf("issuer: nil signer")
+	}
+	if opts.ListID == "" {
+		return nil, fmt.Errorf("issuer: revocation list_id required")
 	}
 	if opts.Sequence == 0 {
 		return nil, fmt.Errorf("issuer: revocation sequence must be > 0")

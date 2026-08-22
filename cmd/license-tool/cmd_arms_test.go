@@ -88,7 +88,7 @@ func TestCmdRevokeListOutFile(t *testing.T) {
 	outPath := filepath.Join(dir, "rev.json")
 	if _, err := callCmd(cmdRevokeList, []string{
 		"-key", privPath, "-key-id", "k1", "-ids", "lic_a,lic_b",
-		"-sequence", "2", "-ttl", "100h", "-out", outPath,
+		"-sequence", "2", "-ttl", "100h", "-list-id", "list-1", "-out", outPath,
 	}); err != nil {
 		t.Fatalf("revoke-list -out: %v", err)
 	}
