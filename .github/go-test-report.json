@@ -1,8 +1,8 @@
 {
   "schema_version": "1.0",
   "environment": {
-    "commit": "2ce121f970973f7eedb05654c7ed1d424fdbb810",
-    "generated_at": "2026-08-22T07:56:13Z",
+    "commit": "6a0b032de06a7c52eab259c487e79c734b6ed060",
+    "generated_at": "2026-08-22T08:20:59Z",
     "go_version": "go1.26.6",
     "os": "linux",
     "arch": "amd64"
@@ -14,9 +14,9 @@
     "skipped": 0
   },
   "coverage": {
-    "covered_statements": 1840,
-    "total_statements": 1962,
-    "percentage": 93.78,
+    "covered_statements": 1845,
+    "total_statements": 1967,
+    "percentage": 93.8,
     "threshold": 93
   },
   "packages": [
@@ -39,7 +39,7 @@
       "status": "pass",
       "tests": 26,
       "failed": 0,
-      "coverage": 94.12
+      "coverage": 94.33
     },
     {
       "name": "pkg/license",
