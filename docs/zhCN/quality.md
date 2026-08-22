@@ -18,16 +18,16 @@
 
 ## 记录环境
 
-- 提交：`69dcdc471635b2124950921fd258db2af12822c4`
-- 生成时间（UTC）：`2026-08-22T00:00:00Z`
+- 提交：`2ce121f970973f7eedb05654c7ed1d424fdbb810`
+- 生成时间（UTC）：`2026-08-22T07:56:13Z`
 - Go 版本：`go1.26.6`
-- 操作系统 / 架构：`darwin/arm64`
+- 操作系统 / 架构：`linux/amd64`
 
 这些值取自 `.github/go-test-report.json` 的 `environment` 字段（唯一的机器可读来源），因此不会与实际运行漂移。
 
 ## 总覆盖率
 
-- **总计：** `94.61%` 语句覆盖率（1809/1912）
+- **总计：** `93.78%` 语句覆盖率（1840/1962）
 - 覆盖率门禁（CI）：`93%`（实测总覆盖率向下取整；确保同一提交不会失败于自身门禁）
 
 根 README 的 Coverage 徽章由 CI 基于同一次运行生成。
@@ -36,10 +36,10 @@
 
 | 包 | 覆盖率 |
 | -- | ------ |
-| `pkg/license` | `95.4%` |
-| `pkg/fingerprint` | `96.2%` |
-| `internal/issuer` | `93.0%` |
-| `cmd/license-tool` | `92.9%` |
+| `pkg/license` | `95.0%` |
+| `pkg/fingerprint` | `94.1%` |
+| `internal/issuer` | `91.7%` |
+| `cmd/license-tool` | `91.8%` |
 | `examples/client` | `0.0%`（示例代码，无测试） |
 
 <!-- END:GENERATED-COVERAGE -->
