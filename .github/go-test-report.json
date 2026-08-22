@@ -7,9 +7,9 @@
     "skipped": 0
   },
   "coverage": {
-    "covered_statements": 1810,
-    "total_statements": 1913,
-    "percentage": 94.62,
+    "covered_statements": 1809,
+    "total_statements": 1912,
+    "percentage": 94.61,
     "threshold": 93
   },
   "packages": [
@@ -18,7 +18,7 @@
       "status": "pass",
       "tests": 79,
       "failed": 0,
-      "coverage": 92.94
+      "coverage": 92.86
     },
     {
       "name": "internal/issuer",
@@ -39,7 +39,7 @@
       "status": "pass",
       "tests": 232,
       "failed": 0,
-      "coverage": 95.42
+      "coverage": 95.43
     }
   ],
   "failures": null
