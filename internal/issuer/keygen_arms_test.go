@@ -190,11 +190,24 @@ func TestCommitStagedFsyncAfterPrivateError(t *testing.T) {
 
 // commitStagedKeyFiles surfaces the "fsync dir after public key" failure arm:
 // both renames succeed, the first dir fsync (after private) succeeds, and the
-// second (after public) fails, restoring the previous public key.
+// second (after public) fails. Recovery must NOT leave a mismatched pair: since
+// both new files are already on disk, the committed private and public keys
+// must remain a matching pair (never "new private + old public").
 func TestCommitStagedFsyncAfterPublicError(t *testing.T) {
 	dir := t.TempDir()
 	privPath := filepath.Join(dir, "k1-private.key")
 	pubPath := filepath.Join(dir, "k1-public.key")
+
+	// Seed a PREVIOUS key pair on disk so the commit is a force-replace and any
+	// reversion to the old public key would create a detectable mismatch.
+	oldKP, _ := GenerateKeyPair("k1")
+	if err := os.WriteFile(privPath, []byte(oldKP.privateKeyBase64()+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(pubPath, []byte(oldKP.PublicKeyBase64()+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
 	kp, _ := GenerateKeyPair("k1")
 	privTmp, err := stageKeyFile(dir, []byte(kp.privateKeyBase64()+"\n"), 0o600)
 	if err != nil {
@@ -228,6 +241,25 @@ func TestCommitStagedFsyncAfterPublicError(t *testing.T) {
 	// The private key must survive: a public-side failure must never lose it.
 	if _, statErr := os.Stat(privPath); statErr != nil {
 		t.Fatalf("private key must survive a public fsync failure: %v", statErr)
+	}
+	// Invariant: whatever landed must be a MATCHING pair. Reverting the public
+	// key to the old one while keeping the new private key would strand a
+	// mismatched pair, which this asserts against.
+	assertMatchingPairOnDisk(t, privPath, pubPath)
+}
+
+// assertMatchingPairOnDisk loads the committed private key, derives its public
+// key and compares it byte-for-byte with the committed public key file. A
+// missing public key is tolerated (private-key-only survival is an accepted
+// invariant: the public key can be regenerated from the private key), but a
+// present-yet-mismatched public key fails the test.
+func assertMatchingPairOnDisk(t *testing.T, privPath, pubPath string) {
+	t.Helper()
+	if _, statErr := os.Stat(pubPath); os.IsNotExist(statErr) {
+		return // private-only survival is acceptable
+	}
+	if err := verifyStagedPair(privPath, pubPath); err != nil {
+		t.Fatalf("committed key pair is mismatched: %v", err)
 	}
 }
 

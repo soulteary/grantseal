@@ -204,6 +204,13 @@ func verifyStagedPair(privTmp, pubTmp string) error {
 //     backup only, leaving the freshly committed private key intact (we never
 //     delete a valid private key because the public commit failed).
 //
+// Recovery never leaves a mismatched pair on disk. If a step fails before the
+// new public key is renamed, we restore the previous private+public pair. Once
+// BOTH new files are renamed into place they already form a matching pair, so a
+// subsequent directory-fsync failure keeps that new pair (durability is
+// uncertain, but coherence is preserved) rather than reverting the public key
+// and stranding "new private + old public".
+//
 // After a successful private-key rename the caller must not remove privTmp
 // (it no longer exists under that name); the outer deferred cleanup tolerates a
 // missing file. On success the backups are removed.
@@ -243,7 +250,14 @@ func commitStagedKeyFiles(dir, privTmp, pubTmp, privPath, pubPath string) error 
 		return fmt.Errorf("issuer: commit public key: %w", err)
 	}
 	if err := fsyncDirIssuer(dir); err != nil {
-		restoreBackup(pubBak, pubPath)
+		// Both the new private AND new public key have already been renamed
+		// into place: on disk they are a matching pair. The only uncertainty is
+		// whether the directory entries are durable across a crash. Restoring
+		// the OLD public key here would leave "new private + old public", a
+		// mismatched pair that violates our invariant. Keep the coherent new
+		// pair intact and only discard the now-stale backups, then fail so the
+		// caller knows durability was not confirmed.
+		removeBackup(pubBak)
 		removeBackup(privBak)
 		return fmt.Errorf("issuer: sync dir after public key: %w", err)
 	}
