@@ -344,7 +344,7 @@ func LoadPrivateKey(path string) (ed25519.PrivateKey, error) {
 	}
 	// Unix permission bits are not meaningfully enforced on Windows, where files
 	// always report a mode like 0666/0444. Only apply the strict-mode check on
-	// platforms whose file system honours Unix permissions.
+	// platforms whose file system honors Unix permissions.
 	if runtime.GOOS != "windows" && fi.Mode().Perm()&0o077 != 0 {
 		return nil, fmt.Errorf("issuer: private key %q has overly permissive mode %o (want 0600)", path, fi.Mode().Perm())
 	}

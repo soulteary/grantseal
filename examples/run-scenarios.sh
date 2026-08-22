@@ -159,6 +159,7 @@ issue_one "$SCEN_DIR/10-product-mismatch.json"    "$OUT_DIR/10-product-mismatch.
 # ---- 4. 生成吊销列表(吊销 revoked 场景的 license_id)----
 echo "== revoke-list: 生成吊销列表 =="
 $TOOL revoke-list -key "$PRIV" -key-id "$KEY_ID" -ids "lic_demo_revoked" \
+  -list-id "acme-revocation" -sequence 1 -ttl 720h \
   -out "$OUT_DIR/revocation.lic" -force
 
 # ---- 5. 验证:不依赖时间的场景先跑 ----
@@ -183,12 +184,12 @@ assert_status_code "06-trial" "valid" "LICENSE_OK"
 
 # 07 device-single:匹配 → valid
 run_verify -license "$OUT_DIR/07-device-single.lic" -pubkey "$PUB" -product acme-app \
-  -device "fp:v2:sha256:demo-device-fingerprint-0007"
+  -device "fp:v2:sha256:0707070707070707070707070707070707070707070707070707070707070707"
 assert_status_code "07-device-single (match)" "valid" "LICENSE_OK"
 
-# 07 device-single:不匹配 → LICENSE_DEVICE_MISMATCH
+# 07 device-single:不匹配（有效但不同的版本化指纹）→ LICENSE_DEVICE_MISMATCH
 run_verify -license "$OUT_DIR/07-device-single.lic" -pubkey "$PUB" -product acme-app \
-  -device "sha256:some-other-device"
+  -device "fp:v2:sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
 assert_status_code "07-device-single (mismatch)" "invalid" "LICENSE_DEVICE_MISMATCH"
 
 # 08 version-constraint:范围内(1.4.0) → valid

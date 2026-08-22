@@ -66,7 +66,7 @@ func TestWriteKeyFilesPermissionsAndNoClobber(t *testing.T) {
 	if _, err := os.Stat(pubPath); err != nil {
 		t.Fatalf("public key missing: %v", err)
 	}
-	// Windows does not honour Unix permission bits; files always report ~0666.
+	// Windows does not honor Unix permission bits; files always report ~0666.
 	if runtime.GOOS != "windows" && fi.Mode().Perm() != 0o600 {
 		t.Fatalf("private key mode = %o, want 0600", fi.Mode().Perm())
 	}

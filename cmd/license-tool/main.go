@@ -55,7 +55,7 @@ const (
 // (flag.ErrHelp and *usageError) rather than matching error strings.
 func run(args []string, stdout, stderr io.Writer) int {
 	if len(args) < 1 {
-		fprint(stderr, usage)
+		fprintf(stderr, "%s", usage)
 		return exitUsage
 	}
 	cmd := args[0]
@@ -80,8 +80,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	case "version", "--version", "-v":
 		err = cmdVersion(rest, stdout, stderr)
 	case "-h", "--help", "help":
-		fprint(stdout, usage)
-		return exitOK
+		err = writeString(stdout, usage)
 	default:
 		fprintf(stderr, "unknown command %q\n\n%s", cmd, usage)
 		return exitUsage

@@ -74,15 +74,13 @@ jobs:
       # GTR runs `go test` once with the race detector and derives both test
       # stats and coverage from that single run, then enforces the gates.
       # Read-only on PRs: no write-back, no secrets. The package list excludes
-      # examples/ (a tests-free demo binary). After the coverage-hardening pass
-      # (injectable filesystem/random-source seams driving the durability and
-      # crypto/rand failure arms) the measured total is ~95.1% (local view;
-      # per-package: pkg/license ~96%, pkg/fingerprint ~98%, cmd/license-tool
-      # ~93%, internal/issuer ~92%). The only remaining exempt branches are the
-      # Windows-only directory-fsync arms (unreachable on the Linux runner) and a
-      # few marshal/canonical error paths that cannot occur for valid inputs.
-      # Total gate 93 and per-package gate 88 both sit below the measured numbers
-      # with margin to absorb macOS/Linux platform-file variance.
+      # examples/ (a tests-free demo binary). The authoritative, machine-
+      # generated coverage numbers (total + per-package, with the environment of
+      # record) live in .github/go-test-report.json and the rendered
+      # docs/*/quality.md derived from it — do NOT hand-transcribe percentages
+      # here, as prose figures drift from the source of truth. The gates below
+      # (total 93 / per-package 88) are the enforced floors and sit below the
+      # measured numbers with margin for macOS/Linux platform-file variance.
       - name: go test + coverage gate (GTR)
         uses: soulteary/go-test-report-action@92d333b2adb625436dc9eec7e7335c2af5db61c8 # v1.0.0
         with:
@@ -147,6 +145,30 @@ jobs:
       - name: govulncheck ./...
         run: govulncheck ./...
 
+  lint:
+    name: golangci-lint
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: 'go.mod'
+          check-latest: false
+
+      # Aggregate static-analysis gate. The enabled linter set is EXPLICIT in
+      # .golangci.yml (default: none) so an upgrade cannot silently add/drop
+      # linters. The action is SHA-pinned and the golangci-lint CLI version is
+      # pinned so results are reproducible. This does NOT replace the go vet and
+      # govulncheck steps above — they run independently.
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@4afd733a84b1f43292c63897423277bb7f4313a9 # v8.0.0
+        with:
+          version: v2.12.2
+          args: --timeout=5m
+
   doc-checks:
     name: docs & sensitive files
     runs-on: ubuntu-latest
@@ -180,6 +202,9 @@ jobs:
 
       - name: write-back allowlist gate self-test
         run: bash scripts/check-writeback-allowlist-selftest.sh
+
+      - name: archive/image allowlist gate self-test
+        run: bash scripts/check-archive-allowlist-selftest.sh
 
       # Regenerate the coverage-derived blocks in docs/*/quality.md from the
       # committed .github/go-test-report.json and fail if they drift. This makes

@@ -24,6 +24,5 @@ func cmdPublicKey(args []string, stdout, stderr io.Writer) error {
 		return err
 	}
 	pub := priv.Public().(ed25519.PublicKey)
-	fprintln(stdout, base64.URLEncoding.EncodeToString(pub))
-	return nil
+	return writeLine(stdout, base64.URLEncoding.EncodeToString(pub))
 }

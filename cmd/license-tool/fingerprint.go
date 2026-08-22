@@ -30,11 +30,12 @@ func cmdFingerprint(args []string, stdout, stderr io.Writer) error {
 	// Default to the drift-resistant v2 scheme; -v1 opts back into the legacy
 	// all-components scheme. -v2 is retained as a no-op for compatibility.
 	compute := fingerprint.ComputeDefault
-	requestCode := fingerprint.RequestCodeDefault
 	if *useV1 {
 		compute = fingerprint.Compute
-		requestCode = fingerprint.RequestCode
 	}
+	// Collect hardware EXACTLY ONCE. Every output mode (request-code, JSON, and
+	// the plain fingerprint) is derived from this single Fingerprint so the
+	// hardware is never read twice for one invocation.
 	fp, err := compute(*ns)
 	if err != nil {
 		if errors.Is(err, fingerprint.ErrInsufficientInfo) {
@@ -43,21 +44,14 @@ func cmdFingerprint(args []string, stdout, stderr io.Writer) error {
 		return err
 	}
 	if *code {
-		rc, cerr := requestCode(*ns)
-		if cerr != nil {
-			return cerr
-		}
-		fprintln(stdout, rc)
-		return nil
+		return writeLine(stdout, fingerprint.RequestCodeFromFingerprint(fp))
 	}
 	if *jsonOut {
 		b, merr := json.MarshalIndent(fp, "", "  ")
 		if merr != nil {
 			return merr
 		}
-		fprintln(stdout, string(b))
-		return nil
+		return writeLine(stdout, string(b))
 	}
-	fprintln(stdout, fp.Fingerprint)
-	return nil
+	return writeLine(stdout, fp.Fingerprint)
 }

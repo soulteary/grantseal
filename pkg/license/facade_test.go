@@ -93,16 +93,16 @@ func TestLifetimeStillChecksDevice(t *testing.T) {
 	req.LicenseType = license.LicenseTypeLifetime
 	req.Edition = license.EditionEnterprise
 	req.ExpiresAt = nil
-	req.DeviceBinding = license.DeviceBinding{Mode: license.DeviceModeSingle, DeviceIDs: []string{"sha256:abc"}}
+	req.DeviceBinding = license.DeviceBinding{Mode: license.DeviceModeSingle, DeviceIDs: []string{devFPA}}
 	data := issueBytes(t, s, req)
 	mgr := newTestManager(ringWith(t, "k1", pub))
 
 	// Wrong device -> still rejected.
-	if _, err := mgr.Validate(data, license.ValidationContext{DeviceFingerprint: "sha256:zzz"}); license.CodeOf(err) != license.CodeDeviceMismatch {
+	if _, err := mgr.Validate(data, license.ValidationContext{DeviceFingerprint: devFPOther}); license.CodeOf(err) != license.CodeDeviceMismatch {
 		t.Fatalf("lifetime must still enforce device: got %s", license.CodeOf(err))
 	}
 	// Right device -> valid and never expires.
-	res, err := mgr.Validate(data, license.ValidationContext{DeviceFingerprint: "sha256:abc"})
+	res, err := mgr.Validate(data, license.ValidationContext{DeviceFingerprint: devFPA})
 	if err != nil || !res.Valid() {
 		t.Fatalf("lifetime with matching device should validate: %v", err)
 	}

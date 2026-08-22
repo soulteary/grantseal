@@ -48,6 +48,21 @@ func newTestManager(ring *license.KeyRing, opts ...license.Option) *license.Mana
 // ptr returns a pointer to t.
 func ptr(t time.Time) *time.Time { return &t }
 
+// Valid device-binding fingerprint values for tests. Scheme A (see
+// pkg/fingerprint) requires every device_id to be a strictly-parseable
+// versioned fingerprint ("fp:v<N>:<algo>:<digest>", 64-hex digest) or an
+// explicit "opaque:<ns>:<value>". These constants replace the legacy bare
+// "sha256:abc" strings that validateStatic now rejects; each 64-hex body is a
+// distinct, arbitrary-but-valid digest so mismatch tests still mismatch.
+const (
+	// devFPA / devFPB / devFPC are distinct valid v2 fingerprints.
+	devFPA = "fp:v2:sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	devFPB = "fp:v2:sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+	devFPC = "fp:v2:sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+	// devFPOther is a valid-but-different fingerprint used by mismatch tests.
+	devFPOther = "fp:v2:sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+)
+
 // baseRequest returns a minimal valid issue request for `keyID`.
 func baseRequest() issuer.IssueRequest {
 	now := time.Now().UTC()

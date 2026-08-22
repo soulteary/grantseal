@@ -17,15 +17,35 @@ import (
 
 func timeNow() time.Time { return time.Now().UTC() }
 
-// fprintf, fprintln, and fprint wrap the fmt.Fprint* helpers for writes to the
-// CLI's stdout/stderr where a write error is not actionable (the process is
-// already emitting its final output). They exist so call sites stay terse while
-// intentionally discarding the unrecoverable write error.
+// writeString writes s to w in a single call and returns any write error so the
+// caller command can propagate it (and run() can map it to a non-zero exit).
+// PRIMARY business stdout output goes through here (usually after building the
+// full multi-line output in a bytes.Buffer) so a broken pipe, full disk, or a
+// failing writer makes the command fail rather than silently succeed. w.Write
+// is allowed to short-write; we treat any error OR a short write as a failure.
+func writeString(w io.Writer, s string) error {
+	n, err := io.WriteString(w, s)
+	if err != nil {
+		return fmt.Errorf("write output: %w", err)
+	}
+	if n < len(s) {
+		return fmt.Errorf("write output: short write (%d of %d bytes)", n, len(s))
+	}
+	return nil
+}
+
+// writeLine writes s followed by a newline as a single checkable write. It is a
+// thin convenience over writeString for the common "one line of stdout" case.
+func writeLine(w io.Writer, s string) error {
+	return writeString(w, s+"\n")
+}
+
+// fprintf writes a formatted diagnostic to w on a best-effort basis. It is used
+// ONLY for stderr diagnostics (usage text, error messages, progress notes),
+// where the process is already emitting its final message and a write error is
+// not actionable. Business stdout must never go through here — it uses
+// writeString/writeLine so the write error can surface to the caller.
 func fprintf(w io.Writer, format string, args ...any) { _, _ = fmt.Fprintf(w, format, args...) }
-
-func fprintln(w io.Writer, args ...any) { _, _ = fmt.Fprintln(w, args...) }
-
-func fprint(w io.Writer, args ...any) { _, _ = fmt.Fprint(w, args...) }
 
 // usageError marks an error as a command-usage problem (missing/invalid flags,
 // unknown flags, bad enum/duration/RFC3339 input) so run maps it to exit code 2,

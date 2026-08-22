@@ -30,6 +30,30 @@ go test ./pkg/license -run=Fuzz -fuzz=Fuzz -fuzztime=20s
 
 All of the above must pass before opening a PR.
 
+## Branch protection / PR flow
+
+`main` is the protected, release-bearing branch. The following are the project's
+governance expectations (a solo maintainer enforces them by convention where a
+GitHub setting is unavailable):
+
+- **Required checks.** A PR may only merge once the CI checks pass: `test`
+  (with `-race`), `vet`, `vuln` (`govulncheck`), `lint` (`golangci-lint`), and
+  the coverage gate (total ≥ 93 / per-package ≥ 88). Do not lower these gates to
+  make a PR green.
+- **No direct pushes, no force-pushes to `main`.** All changes land through a
+  PR from a feature/fix branch. History on `main` is never rewritten.
+- **At least one review.** Every PR needs ≥ 1 approving review before merge.
+  For this solo project the maintainer may self-merge in an emergency, but must
+  leave an audit note on the PR explaining the bypass.
+- **Squash merge.** Merge PRs with *squash and merge* so `main` keeps one commit
+  per change with a descriptive message; delete the branch after merge.
+- **Feature/fix via PR.** Use short-lived `feat/…` or `fix/…` branches; keep PRs
+  focused and small enough to review.
+- **Report write-back is out-of-tree.** Generated artifacts (coverage reports,
+  quality dashboards, badges) are published via a dedicated report branch/PR or
+  an external artifact/badge service — never committed onto `main`'s source
+  history from CI.
+
 ## Coding conventions
 
 - Follow the sibling projects' layout: `main.go` + `internal/` + `pkg/` +

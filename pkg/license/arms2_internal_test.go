@@ -62,14 +62,14 @@ func TestStrictJSONDirectArms(t *testing.T) {
 
 // TestCheckDeviceArms drives the empty-fingerprint and invalid-mode arms.
 func TestCheckDeviceArms(t *testing.T) {
-	pSingle := &Payload{DeviceBinding: DeviceBinding{Mode: DeviceModeSingle, DeviceIDs: []string{"dev-1"}}}
+	pSingle := &Payload{DeviceBinding: DeviceBinding{Mode: DeviceModeSingle, DeviceIDs: []string{fpDeviceA}}}
 	if code := checkDevice(pSingle, ""); code != CodeDeviceMismatch {
 		t.Fatalf("empty fingerprint: want CodeDeviceMismatch, got %v", code)
 	}
-	if code := checkDevice(pSingle, "dev-1"); code != CodeOK {
+	if code := checkDevice(pSingle, fpDeviceA); code != CodeOK {
 		t.Fatalf("matching fingerprint: want CodeOK, got %v", code)
 	}
-	if code := checkDevice(pSingle, "other"); code != CodeDeviceMismatch {
+	if code := checkDevice(pSingle, fpDeviceOther); code != CodeDeviceMismatch {
 		t.Fatalf("non-matching fingerprint: want CodeDeviceMismatch, got %v", code)
 	}
 	pNone := &Payload{DeviceBinding: DeviceBinding{Mode: DeviceModeNone}}

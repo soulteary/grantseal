@@ -53,11 +53,15 @@ const DefaultFingerprintVersion = FingerprintVersionV2
 // the front of every persisted fingerprint string, e.g. "fp:v2:". The scheme
 // version is encoded directly in the value that gets written into a license's
 // device_ids so a stored binding records exactly which fingerprint algorithm
-// produced it. This lets the version-agnostic default (ComputeDefault) keep
-// evolving without silently invalidating already-issued device bindings: a
-// license issued against a v1 or v2 fingerprint stays matchable because the
-// stored string carries its own version, rather than relying on whatever the
-// current default algorithm happens to be.
+// produced it. The prefix is an identification/migration aid, not an automatic
+// compatibility guarantee: it lets a consumer see which scheme a stored value
+// came from and pick the matching computation. It does NOT, by itself, keep an
+// old binding matchable as the version-agnostic default (ComputeDefault)
+// evolves. Because matching is exact-string equality, a value produced by a
+// newer default scheme will not match a binding stored under an older scheme.
+// To re-match an already-issued binding you must recompute that specific
+// version explicitly via ComputeVersion/ComputeHMACVersion (e.g. ComputeVersion(ns, 2)
+// for a v2 binding); the prefix is what tells you which version to recompute.
 func fingerprintPrefix(version int) string {
 	return fmt.Sprintf("fp:v%d:", version)
 }
@@ -103,7 +107,7 @@ func (systemCollector) PrimaryPriority() []string { return primaryCategoryPriori
 var defaultCollector Collector = systemCollector{}
 
 // Component is a single collected hardware identifier. The raw value is stored
-// in an unexported field so it can never be marshalled, exported, or logged.
+// in an unexported field so it can never be marshaled, exported, or logged.
 type Component struct {
 	// Category identifies the kind of identifier (see the Category* constants).
 	Category string
@@ -293,9 +297,10 @@ func ComputeHMACDefault(productNamespace string, hmacKey []byte) (Fingerprint, e
 
 // ComputeHMAC behaves like Compute but, when len(hmacKey) > 0, derives the
 // fingerprint using HMAC-SHA256 keyed with hmacKey. With an empty key it falls
-// back to plain SHA-256. The digest keeps the "sha256:" algorithm tag, and the
-// whole value is prefixed with the versioned scheme tag "fp:v1:", producing
-// e.g. "fp:v1:sha256:<hex>".
+// back to plain SHA-256. The algorithm tag is "hmac-sha256:" when keyed and
+// "sha256:" for the plain fallback, and the whole value is prefixed with the
+// versioned scheme tag "fp:v1:", producing e.g. "fp:v1:sha256:<hex>" or
+// "fp:v1:hmac-sha256:<hex>".
 func ComputeHMAC(productNamespace string, hmacKey []byte) (Fingerprint, error) {
 	if productNamespace == "" {
 		return Fingerprint{}, ErrEmptyNamespace
@@ -307,20 +312,25 @@ func ComputeHMAC(productNamespace string, hmacKey []byte) (Fingerprint, error) {
 		return Fingerprint{}, ErrInsufficientInfo
 	}
 
-	var sum []byte
+	var (
+		sum       []byte
+		algorithm string
+	)
 	if len(hmacKey) > 0 {
 		mac := hmac.New(sha256.New, hmacKey)
 		mac.Write([]byte(canonical))
 		sum = mac.Sum(nil)
+		algorithm = "hmac-sha256:"
 	} else {
 		digest := sha256.Sum256([]byte(canonical))
 		sum = digest[:]
+		algorithm = "sha256:"
 	}
 
 	return Fingerprint{
 		FingerprintVersion: FingerprintVersion,
 		ProductNamespace:   productNamespace,
-		Fingerprint:        fingerprintPrefix(FingerprintVersion) + "sha256:" + hex.EncodeToString(sum),
+		Fingerprint:        fingerprintPrefix(FingerprintVersion) + algorithm + hex.EncodeToString(sum),
 		ComponentsUsed:     categories,
 	}, nil
 }
@@ -397,6 +407,19 @@ func requestCodeFromFingerprint(fp Fingerprint) string {
 		groups = append(groups, hexPart[i:end])
 	}
 	return strings.Join(groups, "-")
+}
+
+// RequestCodeFromFingerprint derives the human-friendly, uppercase,
+// dash-grouped request code from an already-computed Fingerprint, WITHOUT
+// re-reading any hardware. It is the pure, hardware-free counterpart of
+// RequestCode/RequestCodeV2/RequestCodeDefault: those collect hardware to build
+// a Fingerprint and then call this. Callers that have already obtained a
+// Fingerprint (e.g. via Compute*/ComputeVersion) should use this to avoid
+// collecting hardware a second time. The code is tagged with the fingerprint's
+// scheme version (e.g. "V1-..."/"V2-...") so codes from different schemes are
+// visibly distinct.
+func RequestCodeFromFingerprint(fp Fingerprint) string {
+	return requestCodeFromFingerprint(fp)
 }
 
 // stripFingerprintPrefixes removes the versioned scheme tag ("fp:v<N>:") and the

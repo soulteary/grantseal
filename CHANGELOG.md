@@ -11,6 +11,90 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-08-22
+
+First **stable** release. `grantseal` now declares its four surfaces — the
+on-disk/wire schema, the `LICENSE_*` error codes, the `license-tool` CLI, and
+the exported `pkg/...` Go API — **stable under SemVer** (see `COMPATIBILITY.md`).
+The one-time protocol clean break to `schema_version = 2` and the
+`grantseal/license/v2\x00` signing domain, previously staged during pre-1.0
+development (the `0.9.0` entry below), is carried forward unchanged and is now
+the stabilized baseline. **From `1.0.0` onward, removing acceptance of a schema
+version — or otherwise breaking a previously-valid artifact — requires a MAJOR
+bump** with a migration note. No wire, error-code, or CLI behavior changes
+relative to `0.9.0`; the items below are additive CLI/tooling and governance
+improvements, plus one keyed-v1 fingerprint tag correction (see **Fixed**).
+
+### Added
+
+- `license-tool verify` gains **keyring input**: the `-pubkey` flag is now
+  repeatable and accepts either a bare key-file path (unchanged single-key
+  behavior) or a `keyID=path` pair, and a new `-keyring path.json` flag loads a
+  multi-key ring (`{"keys":[{"key_id","public_key","enabled","revoked",
+  "not_before","not_after"}]}`). An optional `-revocation-keyring path.json`
+  authenticates the revocation list with a separate key set. Duplicate key IDs
+  across any source are rejected as a usage error. All new flags default to
+  preserving the prior single-`-pubkey` behavior (additive per the CLI
+  compatibility rules).
+- `pkg/fingerprint.RequestCodeFromFingerprint(fp Fingerprint) string` derives a
+  request code from an already-computed `Fingerprint` without re-reading
+  hardware; it is the pure counterpart of `RequestCode*`.
+
+### Changed
+
+- **CLI output errors are now propagated.** The `license-tool` commands build
+  their primary stdout output and write it in a single checkable call, returning
+  a non-nil error (mapped to a non-zero exit) when the write fails — e.g. a
+  broken pipe, a full disk, or a closed stdout. Previously stdout write errors
+  were unconditionally discarded, so a failed write could exit `0`. Diagnostics
+  written to stderr remain best-effort. Exit-code meanings are unchanged
+  (`0`/`2`/`1`; see `COMPATIBILITY.md` §3).
+- `license-tool fingerprint` collects hardware **exactly once** per invocation.
+  The `-request-code` output is now derived from the same computed fingerprint
+  as the other modes (via `RequestCodeFromFingerprint`) instead of triggering a
+  second hardware read.
+
+### Tooling / CI
+
+- Added `.golangci.yml` with an **explicit** enabled linter set (no reliance on
+  drifting defaults): `staticcheck`, `govet`, `errcheck`, `ineffassign`,
+  `unused`, `misspell`, `unconvert`, `bodyclose`, `errorlint`, plus `gofmt` /
+  `gofumpt` formatters. A SHA-pinned `golangci-lint` CI job (pinned CLI version)
+  runs on pull requests and pushes to the default branch, alongside — not
+  replacing — the existing `go vet` and `govulncheck` steps.
+- Removed the hand-written, drift-prone coverage percentages from the CI
+  workflow comment; the authoritative numbers come from
+  `.github/go-test-report.json` and the generated `docs/*/quality.md`. Coverage
+  gates are unchanged (total 93 / per-package 88).
+- `CONTRIBUTING.md` (and the `docs/*/CONTRIBUTING.md` mirrors) document the
+  **branch-protection / PR flow** expectations for a solo-maintainer project.
+
+### Fixed
+
+- **Keyed v1 fingerprint algorithm tag corrected to `hmac-sha256`.** In v0.9.0,
+  a *keyed* v1 fingerprint (`ComputeHMAC` with a non-empty key) incorrectly
+  emitted the tag `fp:v1:sha256:` even though the digest was computed with
+  HMAC-SHA256. It now correctly emits `fp:v1:hmac-sha256:`, matching the v2
+  behavior and the actual algorithm. **Migration:** the tag now truthfully names
+  the algorithm, so a single tag no longer denotes two different meanings.
+  Anyone who persisted a *keyed* v1 fingerprint value produced by v0.9.0 (a
+  `fp:v1:sha256:<hex>` that was actually HMAC-keyed) must **regenerate/migrate**
+  that stored value — recompute it with `ComputeHMACVersion(ns, 1, key)` (now
+  `fp:v1:hmac-sha256:<hex>`) or move to the recommended v2 scheme. Plain
+  (unkeyed) v1 and all v2 values are unaffected.
+
+### Security
+
+- **Device-binding format enforcement (Scheme A).** A signed license's
+  `device_binding.device_ids` must now be strictly-parseable values: a versioned
+  fingerprint `fp:v<N>:<algo>:<digest>` (produced by `pkg/fingerprint`) or an
+  explicit opaque identifier `opaque:<namespace>:<value>`. Values are validated
+  via `fingerprint.Parse` during static validation; legacy bare values
+  (`sha256:<hex>` without a version, `dev-1`, or arbitrary strings) are rejected
+  fail-closed with `LICENSE_MALFORMED`. See `COMPATIBILITY.md` §1.1. New
+  `fingerprint.Parse`/`Scheme`/`ComputeVersion`/`ComputeHMACVersion` APIs make
+  the accepted format an explicit, testable contract.
+
 ## [0.9.0] - 2026-08-22
 
 ### Security & protocol hardening (quality hardening initiative)
@@ -286,6 +370,7 @@ written in Go 1.26 using **only the standard library**.
   is recorded here (see the 0.9.0 entry, which raises it to `2` and adds
   signing-domain separation).
 
-[Unreleased]: https://github.com/soulteary/grantseal/compare/v0.9.0...HEAD
+[Unreleased]: https://github.com/soulteary/grantseal/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/soulteary/grantseal/compare/v0.9.0...v1.0.0
 [0.9.0]: https://github.com/soulteary/grantseal/compare/v0.1.0...v0.9.0
 [0.1.0]: https://github.com/soulteary/grantseal/releases/tag/v0.1.0

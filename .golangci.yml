@@ -1,0 +1,69 @@
+# golangci-lint configuration (schema v2).
+#
+# The enabled set is EXPLICIT (default: none) so an upgrade cannot silently add
+# or drop linters and change results. Keep this list and the pinned
+# golangci-lint version in .github/workflows/ci.yml in lock-step for
+# reproducible runs. Formatters (gofmt/gofumpt) live under the separate
+# `formatters` section in schema v2 and are run with `golangci-lint fmt`.
+version: "2"
+
+run:
+  # Match the module's Go version so analyzers reason about the right stdlib.
+  go: "1.26"
+  timeout: 5m
+  tests: true
+
+linters:
+  # Do not inherit golangci-lint's default set; enable exactly what we want.
+  default: none
+  enable:
+    - staticcheck   # comprehensive static analysis (includes former gosimple/stylecheck)
+    - govet         # go vet analyzers
+    - errcheck      # unchecked error returns (the core of P2-1)
+    - ineffassign   # ineffectual assignments
+    - unused        # unused code (successor to deadcode/varcheck/structcheck)
+    - misspell      # common English misspellings in comments/strings
+    - unconvert     # redundant type conversions
+    - bodyclose     # unclosed HTTP response bodies (defensive; no net use today)
+    - errorlint     # correct errors.Is/As/%w usage
+  settings:
+    staticcheck:
+      # Use staticcheck's default check set (all SA* correctness checks plus the
+      # stable simplifications) rather than "all", which would also turn on the
+      # opinionated ST* style and QF* quickfix categories that are off by
+      # default upstream and drift between releases.
+      checks:
+        - all
+        - -ST1000
+        - -ST1003
+        - -ST1016
+        - -ST1020
+        - -ST1021
+        - -ST1022
+        - -QF1001
+        - -QF1003
+        - -QF1008
+    govet:
+      enable-all: true
+      disable:
+        # fieldalignment is advisory memory-layout tuning, not a correctness
+        # gate; leaving it off avoids churn on readability-ordered structs.
+        - fieldalignment
+        # shadow flags the idiomatic `if err := f(); err != nil` pattern used
+        # throughout the codebase; it is not part of the default `go vet` and is
+        # too noisy to gate on. The plain `go vet ./...` CI step (which excludes
+        # shadow) still runs alongside this.
+        - shadow
+    misspell:
+      locale: US
+
+formatters:
+  enable:
+    - gofmt
+    - gofumpt
+
+issues:
+  # Report every finding rather than golangci-lint's default per-linter cap so
+  # nothing is silently hidden.
+  max-issues-per-linter: 0
+  max-same-issues: 0

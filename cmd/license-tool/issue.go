@@ -98,8 +98,7 @@ func cmdIssue(args []string, stdout, stderr io.Writer) error {
 		return err
 	}
 	if *out == "" {
-		fprintln(stdout, string(data))
-		return nil
+		return writeLine(stdout, string(data))
 	}
 	if err := writeFileNoClobber(*out, data, 0o644, *force); err != nil {
 		return err
