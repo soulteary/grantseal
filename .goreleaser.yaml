@@ -72,10 +72,11 @@ release:
 
 # Software Bill of Materials (P1-6). goreleaser invokes syft to emit a CycloneDX
 # SBOM per built archive; the resulting *.sbom.json files are attached to the
-# GitHub Release as assets. syft must be on PATH in the release runner (the
-# release workflow installs it via anchore/sbom-action's installer before
-# running goreleaser). SBOM generation is skipped automatically for
-# `--snapshot` if syft is absent, so it does not break local snapshot builds.
+# GitHub Release as assets. syft must be on PATH wherever goreleaser runs this
+# stanza (both the release workflow and the ci.yml snapshot job install it via
+# anchore/sbom-action's pinned installer before running goreleaser). goreleaser
+# treats syft as a HARD dependency and FAILS the run (it does NOT skip) when
+# syft is missing, even under `--snapshot`, so the installer step is mandatory.
 sboms:
   - id: archive
     artifacts: archive

@@ -282,6 +282,14 @@ jobs:
           go-version-file: 'go.mod'
           check-latest: false
 
+      # The .goreleaser.yaml `sboms:` stanza shells out to syft, which is a hard
+      # dependency: goreleaser fails (not skips) when syft is absent from PATH,
+      # even in --snapshot mode. Install the pinned syft here so this job
+      # exercises the same SBOM path the real release runs. Pinned to the same
+      # SHA as release.yml; CI-only, never in the runtime dependency graph.
+      - name: Install syft (SBOM generator)
+        uses: anchore/sbom-action/download-syft@8e94d75ddd33f69f691467e42275782e4bfefe84 # v0.20.9
+
       # Exercise the full release pipeline on every push/PR WITHOUT publishing,
       # so packaging regressions are caught before a tag is cut. --snapshot needs
       # no secrets and produces nothing that leaves the runner.
