@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"io"
 	"os"
@@ -13,29 +14,27 @@ import (
 	"github.com/soulteary/grantseal/pkg/license"
 )
 
-// captureStdout runs fn while redirecting os.Stdout to a pipe and returns
-// everything fn wrote to stdout. The command handlers print directly to
-// os.Stdout, so this lets us assert on their human-readable output without
-// changing the command signatures.
-func captureStdout(t *testing.T, fn func() error) (string, error) {
-	t.Helper()
-	orig := os.Stdout
-	r, w, err := os.Pipe()
-	if err != nil {
-		t.Fatalf("pipe: %v", err)
-	}
-	os.Stdout = w
-	done := make(chan string, 1)
-	go func() {
-		b, _ := io.ReadAll(r)
-		done <- string(b)
-	}()
-	callErr := fn()
-	_ = w.Close()
-	os.Stdout = orig
-	out := <-done
-	_ = r.Close()
-	return out, callErr
+// cmdFunc is the shared shape of every subcommand handler after the exit-code
+// refactor: it takes the subcommand args plus injected stdout/stderr writers.
+type cmdFunc func(args []string, stdout, stderr io.Writer) error
+
+// callCmd invokes a subcommand handler with buffered stdout/stderr and returns
+// what it wrote to stdout plus the handler's error. Handlers write only to the
+// injected writers (never the global os.Stdout/os.Stderr), so this needs no
+// pipe redirection and is safe under -race.
+func callCmd(fn cmdFunc, args []string) (stdout string, err error) {
+	var out, errBuf bytes.Buffer
+	err = fn(args, &out, &errBuf)
+	return out.String(), err
+}
+
+// runCLI drives the top-level run() entry with buffered streams and returns
+// stdout, stderr, and the process exit code. Tests assert the exit-code
+// contract directly through run without ever calling os.Exit.
+func runCLI(args ...string) (stdout, stderr string, code int) {
+	var out, errBuf bytes.Buffer
+	code = run(args, &out, &errBuf)
+	return out.String(), errBuf.String(), code
 }
 
 // newTestKeyPair writes a key pair to a temp dir and returns paths + key id.
@@ -76,7 +75,7 @@ func writeIssueConfig(t *testing.T, dir, keyID string) string {
 }
 
 func TestCmdVersion(t *testing.T) {
-	out, err := captureStdout(t, func() error { return cmdVersion(nil) })
+	out, err := callCmd(cmdVersion, nil)
 	if err != nil {
 		t.Fatalf("cmdVersion: %v", err)
 	}
@@ -86,16 +85,14 @@ func TestCmdVersion(t *testing.T) {
 }
 
 func TestCmdKeygenRequiresKeyID(t *testing.T) {
-	if err := cmdKeygen(nil); err == nil {
+	if _, err := callCmd(cmdKeygen, nil); err == nil {
 		t.Fatal("expected error when -key-id missing")
 	}
 }
 
 func TestCmdKeygenWritesFiles(t *testing.T) {
 	dir := t.TempDir()
-	out, err := captureStdout(t, func() error {
-		return cmdKeygen([]string{"-key-id", "k1", "-out-dir", dir})
-	})
+	out, err := callCmd(cmdKeygen, []string{"-key-id", "k1", "-out-dir", dir})
 	if err != nil {
 		t.Fatalf("cmdKeygen: %v", err)
 	}
@@ -115,9 +112,7 @@ func TestCmdKeygenWritesFiles(t *testing.T) {
 
 func TestCmdPublicKey(t *testing.T) {
 	_, privPath, pubPath := newTestKeyPair(t, "k1")
-	out, err := captureStdout(t, func() error {
-		return cmdPublicKey([]string{"-key", privPath})
-	})
+	out, err := callCmd(cmdPublicKey, []string{"-key", privPath})
 	if err != nil {
 		t.Fatalf("cmdPublicKey: %v", err)
 	}
@@ -128,13 +123,13 @@ func TestCmdPublicKey(t *testing.T) {
 }
 
 func TestCmdPublicKeyRequiresKey(t *testing.T) {
-	if err := cmdPublicKey(nil); err == nil {
+	if _, err := callCmd(cmdPublicKey, nil); err == nil {
 		t.Fatal("expected error when -key missing")
 	}
 }
 
 func TestCmdIssueRequiresFlags(t *testing.T) {
-	if err := cmdIssue(nil); err == nil {
+	if _, err := callCmd(cmdIssue, nil); err == nil {
 		t.Fatal("expected error when -config and -key missing")
 	}
 }
@@ -144,18 +139,14 @@ func TestCmdIssueVerifyInspectRoundTrip(t *testing.T) {
 	cfgPath := writeIssueConfig(t, dir, "k1")
 	licPath := filepath.Join(dir, "license.json")
 
-	if _, err := captureStdout(t, func() error {
-		return cmdIssue([]string{"-config", cfgPath, "-key", privPath, "-out", licPath})
-	}); err != nil {
+	if _, err := callCmd(cmdIssue, []string{"-config", cfgPath, "-key", privPath, "-out", licPath}); err != nil {
 		t.Fatalf("cmdIssue: %v", err)
 	}
 	if _, err := os.Stat(licPath); err != nil {
 		t.Fatalf("license not written: %v", err)
 	}
 
-	verifyOut, err := captureStdout(t, func() error {
-		return cmdVerify([]string{"-license", licPath, "-pubkey", pubPath, "-product", "prod-1"})
-	})
+	verifyOut, err := callCmd(cmdVerify, []string{"-license", licPath, "-pubkey", pubPath, "-product", "prod-1"})
 	if err != nil {
 		t.Fatalf("cmdVerify: %v", err)
 	}
@@ -163,9 +154,7 @@ func TestCmdIssueVerifyInspectRoundTrip(t *testing.T) {
 		t.Fatalf("verify output unexpected: %q", verifyOut)
 	}
 
-	inspectOut, err := captureStdout(t, func() error {
-		return cmdInspect([]string{"-license", licPath, "-pubkey", pubPath})
-	})
+	inspectOut, err := callCmd(cmdInspect, []string{"-license", licPath, "-pubkey", pubPath})
 	if err != nil {
 		t.Fatalf("cmdInspect: %v", err)
 	}
@@ -182,27 +171,23 @@ func TestCmdVerifyWrongProductReturnsError(t *testing.T) {
 	dir, privPath, pubPath := newTestKeyPair(t, "k1")
 	cfgPath := writeIssueConfig(t, dir, "k1")
 	licPath := filepath.Join(dir, "license.json")
-	if _, err := captureStdout(t, func() error {
-		return cmdIssue([]string{"-config", cfgPath, "-key", privPath, "-out", licPath})
-	}); err != nil {
+	if _, err := callCmd(cmdIssue, []string{"-config", cfgPath, "-key", privPath, "-out", licPath}); err != nil {
 		t.Fatalf("cmdIssue: %v", err)
 	}
-	_, err := captureStdout(t, func() error {
-		return cmdVerify([]string{"-license", licPath, "-pubkey", pubPath, "-product", "other-product"})
-	})
+	_, err := callCmd(cmdVerify, []string{"-license", licPath, "-pubkey", pubPath, "-product", "other-product"})
 	if err == nil {
 		t.Fatal("expected verify error for product mismatch")
 	}
 }
 
 func TestCmdVerifyRequiresFlags(t *testing.T) {
-	if err := cmdVerify(nil); err == nil {
+	if _, err := callCmd(cmdVerify, nil); err == nil {
 		t.Fatal("expected error when -license and -pubkey missing")
 	}
 }
 
 func TestCmdInspectRequiresFlags(t *testing.T) {
-	if err := cmdInspect(nil); err == nil {
+	if _, err := callCmd(cmdInspect, nil); err == nil {
 		t.Fatal("expected error when -license and -pubkey missing")
 	}
 }
@@ -213,20 +198,20 @@ func TestCmdIssueBadConfig(t *testing.T) {
 	if err := os.WriteFile(cfgPath, []byte(`{"unknown_field": true}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := cmdIssue([]string{"-config", cfgPath, "-key", privPath}); err == nil {
+	if _, err := callCmd(cmdIssue, []string{"-config", cfgPath, "-key", privPath}); err == nil {
 		t.Fatal("expected error on unknown config field")
 	}
 }
 
 func TestCmdRevokeListRequiresFlags(t *testing.T) {
-	if err := cmdRevokeList(nil); err == nil {
+	if _, err := callCmd(cmdRevokeList, nil); err == nil {
 		t.Fatal("expected error when -key and -key-id missing")
 	}
 }
 
 func TestCmdRevokeListNoIDs(t *testing.T) {
 	_, privPath, _ := newTestKeyPair(t, "k1")
-	if err := cmdRevokeList([]string{"-key", privPath, "-key-id", "k1"}); err == nil {
+	if _, err := callCmd(cmdRevokeList, []string{"-key", privPath, "-key-id", "k1"}); err == nil {
 		t.Fatal("expected error when no ids provided")
 	}
 }
@@ -234,9 +219,7 @@ func TestCmdRevokeListNoIDs(t *testing.T) {
 func TestCmdRevokeListRoundTrip(t *testing.T) {
 	dir, privPath, pubPath := newTestKeyPair(t, "k1")
 	revPath := filepath.Join(dir, "revocation.json")
-	if _, err := captureStdout(t, func() error {
-		return cmdRevokeList([]string{"-key", privPath, "-key-id", "k1", "-ids", "lic_a,lic_b", "-sequence", "1", "-ttl", "8760h", "-out", revPath})
-	}); err != nil {
+	if _, err := callCmd(cmdRevokeList, []string{"-key", privPath, "-key-id", "k1", "-ids", "lic_a,lic_b", "-sequence", "1", "-ttl", "8760h", "-list-id", "list-1", "-out", revPath}); err != nil {
 		t.Fatalf("cmdRevokeList: %v", err)
 	}
 	revData, err := os.ReadFile(revPath)
@@ -264,9 +247,7 @@ func TestCmdRevokeListIDsFile(t *testing.T) {
 		t.Fatal(err)
 	}
 	revPath := filepath.Join(dir, "revocation.json")
-	if _, err := captureStdout(t, func() error {
-		return cmdRevokeList([]string{"-key", privPath, "-key-id", "k1", "-ids-file", idsFile, "-sequence", "1", "-ttl", "8760h", "-out", revPath})
-	}); err != nil {
+	if _, err := callCmd(cmdRevokeList, []string{"-key", privPath, "-key-id", "k1", "-ids-file", idsFile, "-sequence", "1", "-ttl", "8760h", "-list-id", "list-1", "-out", revPath}); err != nil {
 		t.Fatalf("cmdRevokeList ids-file: %v", err)
 	}
 	revData, err := os.ReadFile(revPath)
@@ -288,7 +269,7 @@ func TestCmdRevokeListIDsFile(t *testing.T) {
 }
 
 func TestCmdFingerprintRequiresNamespace(t *testing.T) {
-	if err := cmdFingerprint(nil); err == nil {
+	if _, err := callCmd(cmdFingerprint, nil); err == nil {
 		t.Fatal("expected error when -namespace missing")
 	}
 }
@@ -297,9 +278,7 @@ func TestCmdFingerprintRequiresNamespace(t *testing.T) {
 // insufficient-info error. We accept either a successful fingerprint or that
 // specific error, but never a panic or a different failure.
 func TestCmdFingerprintRunsOrReportsInsufficient(t *testing.T) {
-	out, err := captureStdout(t, func() error {
-		return cmdFingerprint([]string{"-namespace", "test-ns"})
-	})
+	out, err := callCmd(cmdFingerprint, []string{"-namespace", "test-ns"})
 	if err != nil {
 		if !strings.Contains(err.Error(), "insufficient hardware info") {
 			t.Fatalf("unexpected fingerprint error: %v", err)
@@ -334,9 +313,7 @@ func TestWriteFileNoClobber(t *testing.T) {
 // platforms; anything else — including a panic — is a failure. With
 // -request-code the emitted code is tagged with the V2- version prefix.
 func TestCmdFingerprintV2RunsOrReportsInsufficient(t *testing.T) {
-	out, err := captureStdout(t, func() error {
-		return cmdFingerprint([]string{"-namespace", "test-ns", "-v2", "-request-code"})
-	})
+	out, err := callCmd(cmdFingerprint, []string{"-namespace", "test-ns", "-v2", "-request-code"})
 	if err != nil {
 		if !strings.Contains(err.Error(), "insufficient hardware info") {
 			t.Fatalf("unexpected v2 fingerprint error: %v", err)

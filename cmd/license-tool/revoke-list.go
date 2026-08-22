@@ -3,6 +3,7 @@ package main
 import (
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 	"time"
@@ -11,8 +12,9 @@ import (
 	"github.com/soulteary/grantseal/pkg/license"
 )
 
-func cmdRevokeList(args []string) error {
+func cmdRevokeList(args []string, stdout, stderr io.Writer) error {
 	fs := flag.NewFlagSet("revoke-list", flag.ContinueOnError)
+	fs.SetOutput(stderr)
 	keyPath := fs.String("key", "", "path to the private key file (required)")
 	keyID := fs.String("key-id", "", "key_id for the signature (required)")
 	ids := fs.String("ids", "", "comma-separated license_ids to revoke")
@@ -24,7 +26,7 @@ func cmdRevokeList(args []string) error {
 	v1 := fs.Bool("v1", false, "emit a LEGACY v1 list (no replay resistance; clients must opt in to accept)")
 	out := fs.String("out", "", "output revocation file path (default stdout)")
 	force := fs.Bool("force", false, "overwrite existing output file")
-	if err := fs.Parse(args); err != nil {
+	if err := parseFlags(fs, args); err != nil {
 		return err
 	}
 	if *keyPath == "" || *keyID == "" {
@@ -71,13 +73,13 @@ func cmdRevokeList(args []string) error {
 		return err
 	}
 	if *out == "" {
-		fmt.Println(string(data))
+		fmt.Fprintln(stdout, string(data))
 		return nil
 	}
 	if err := writeFileNoClobber(*out, data, 0o644, *force); err != nil {
 		return err
 	}
-	fmt.Fprintf(os.Stderr, "wrote revocation list -> %s (%d ids)\n", *out, len(revoked))
+	fmt.Fprintf(stderr, "wrote revocation list -> %s (%d ids)\n", *out, len(revoked))
 	return nil
 }
 

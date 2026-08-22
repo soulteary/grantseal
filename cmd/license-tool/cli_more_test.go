@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -15,7 +16,7 @@ import (
 // must surface as an error (which main maps to a non-zero exit) rather than a
 // panic or os.Exit inside the handler.
 func TestUnknownFlagIsError(t *testing.T) {
-	cmds := map[string]func([]string) error{
+	cmds := map[string]cmdFunc{
 		"version":     cmdVersion,
 		"keygen":      cmdKeygen,
 		"public-key":  cmdPublicKey,
@@ -26,8 +27,13 @@ func TestUnknownFlagIsError(t *testing.T) {
 		"fingerprint": cmdFingerprint,
 	}
 	for name, fn := range cmds {
-		if err := fn([]string{"-this-flag-does-not-exist"}); err == nil {
+		_, err := callCmd(fn, []string{"-this-flag-does-not-exist"})
+		if err == nil {
 			t.Fatalf("%s: expected error on unknown flag", name)
+		}
+		var ue *usageError
+		if !errors.As(err, &ue) {
+			t.Fatalf("%s: unknown flag should be a usage error, got %T: %v", name, err, err)
 		}
 	}
 }
@@ -36,13 +42,13 @@ func TestUnknownFlagIsError(t *testing.T) {
 func TestCmdVerifyMissingFilesError(t *testing.T) {
 	dir, privPath, pubPath := newTestKeyPair(t, "k1")
 	missingLic := filepath.Join(dir, "nope-license.json")
-	if err := cmdVerify([]string{"-license", missingLic, "-pubkey", pubPath, "-product", "prod-1"}); err == nil {
+	if _, err := callCmd(cmdVerify, []string{"-license", missingLic, "-pubkey", pubPath, "-product", "prod-1"}); err == nil {
 		t.Fatal("expected error for missing license file")
 	}
 	// Missing pubkey file.
 	missingPub := filepath.Join(dir, "nope-pub.key")
 	licPath := issueTestLicense(t, dir, "k1", privPath)
-	if err := cmdVerify([]string{"-license", licPath, "-pubkey", missingPub, "-product", "prod-1"}); err == nil {
+	if _, err := callCmd(cmdVerify, []string{"-license", licPath, "-pubkey", missingPub, "-product", "prod-1"}); err == nil {
 		t.Fatal("expected error for missing pubkey file")
 	}
 }
@@ -55,7 +61,7 @@ func TestCmdVerifyBadEnvelopeError(t *testing.T) {
 	if err := os.WriteFile(bad, []byte("{not json"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := cmdVerify([]string{"-license", bad, "-pubkey", pubPath, "-product", "prod-1"}); err == nil {
+	if _, err := callCmd(cmdVerify, []string{"-license", bad, "-pubkey", pubPath, "-product", "prod-1"}); err == nil {
 		t.Fatal("expected error for malformed license envelope")
 	}
 }
@@ -69,21 +75,17 @@ func TestCmdVerifyAllOptions(t *testing.T) {
 
 	// A fresh v2 revocation list that does NOT revoke our license.
 	revPath := filepath.Join(dir, "revocation.json")
-	if _, err := captureStdout(t, func() error {
-		return cmdRevokeList([]string{
-			"-key", privPath, "-key-id", "k1", "-ids", "someone_else",
-			"-sequence", "1", "-ttl", "8760h", "-out", revPath,
-		})
+	if _, err := callCmd(cmdRevokeList, []string{
+		"-key", privPath, "-key-id", "k1", "-ids", "someone_else",
+		"-sequence", "1", "-ttl", "8760h", "-list-id", "list-1", "-out", revPath,
 	}); err != nil {
 		t.Fatalf("build revocation: %v", err)
 	}
 
-	out, err := captureStdout(t, func() error {
-		return cmdVerify([]string{
-			"-license", licPath, "-pubkey", pubPath, "-key-id", "k1",
-			"-product", "prod-1", "-version", "1.0.0", "-clock-skew", "5s",
-			"-revocation", revPath,
-		})
+	out, err := callCmd(cmdVerify, []string{
+		"-license", licPath, "-pubkey", pubPath, "-key-id", "k1",
+		"-product", "prod-1", "-version", "1.0.0", "-clock-skew", "5s",
+		"-revocation", revPath,
 	})
 	if err != nil {
 		t.Fatalf("cmdVerify all options: %v", err)
@@ -99,9 +101,7 @@ func TestCmdVerifyRevokedLicenseFails(t *testing.T) {
 	licPath := issueTestLicense(t, dir, "k1", privPath)
 
 	// Discover the issued license_id via inspect so we can revoke it.
-	inspectOut, err := captureStdout(t, func() error {
-		return cmdInspect([]string{"-license", licPath, "-pubkey", pubPath})
-	})
+	inspectOut, err := callCmd(cmdInspect, []string{"-license", licPath, "-pubkey", pubPath})
 	if err != nil {
 		t.Fatalf("inspect: %v", err)
 	}
@@ -111,20 +111,16 @@ func TestCmdVerifyRevokedLicenseFails(t *testing.T) {
 	}
 
 	revPath := filepath.Join(dir, "revocation.json")
-	if _, err := captureStdout(t, func() error {
-		return cmdRevokeList([]string{
-			"-key", privPath, "-key-id", "k1", "-ids", payload.LicenseID,
-			"-sequence", "1", "-ttl", "8760h", "-out", revPath,
-		})
+	if _, err := callCmd(cmdRevokeList, []string{
+		"-key", privPath, "-key-id", "k1", "-ids", payload.LicenseID,
+		"-sequence", "1", "-ttl", "8760h", "-list-id", "list-1", "-out", revPath,
 	}); err != nil {
 		t.Fatalf("build revocation: %v", err)
 	}
 
-	_, verr := captureStdout(t, func() error {
-		return cmdVerify([]string{
-			"-license", licPath, "-pubkey", pubPath,
-			"-product", "prod-1", "-revocation", revPath,
-		})
+	_, verr := callCmd(cmdVerify, []string{
+		"-license", licPath, "-pubkey", pubPath,
+		"-product", "prod-1", "-revocation", revPath,
 	})
 	if verr == nil {
 		t.Fatal("expected verify to fail for a revoked license")
@@ -135,7 +131,7 @@ func TestCmdVerifyRevokedLicenseFails(t *testing.T) {
 func TestCmdVerifyBadRevocationPath(t *testing.T) {
 	dir, privPath, pubPath := newTestKeyPair(t, "k1")
 	licPath := issueTestLicense(t, dir, "k1", privPath)
-	if err := cmdVerify([]string{
+	if _, err := callCmd(cmdVerify, []string{
 		"-license", licPath, "-pubkey", pubPath, "-product", "prod-1",
 		"-revocation", filepath.Join(dir, "no-such-revocation.json"),
 	}); err == nil {
@@ -150,9 +146,7 @@ func issueTestLicense(t *testing.T, dir, keyID, privPath string) string {
 	t.Helper()
 	cfgPath := writeIssueConfig(t, dir, keyID)
 	licPath := filepath.Join(dir, "license.json")
-	if _, err := captureStdout(t, func() error {
-		return cmdIssue([]string{"-config", cfgPath, "-key", privPath, "-out", licPath})
-	}); err != nil {
+	if _, err := callCmd(cmdIssue, []string{"-config", cfgPath, "-key", privPath, "-out", licPath}); err != nil {
 		t.Fatalf("cmdIssue: %v", err)
 	}
 	return licPath
@@ -164,7 +158,7 @@ func issueTestLicense(t *testing.T, dir, keyID, privPath string) string {
 // usage error when the flag itself is absent.
 func TestCmdIssueMissingConfigFile(t *testing.T) {
 	dir, privPath, _ := newTestKeyPair(t, "k1")
-	if err := cmdIssue([]string{"-config", filepath.Join(dir, "nope.json"), "-key", privPath}); err == nil {
+	if _, err := callCmd(cmdIssue, []string{"-config", filepath.Join(dir, "nope.json"), "-key", privPath}); err == nil {
 		t.Fatal("expected error for missing config file")
 	}
 }
@@ -185,7 +179,7 @@ func TestCmdIssueBadTimeInConfig(t *testing.T) {
 	if err := os.WriteFile(cfgPath, data, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := cmdIssue([]string{"-config", cfgPath, "-key", privPath}); err == nil {
+	if _, err := callCmd(cmdIssue, []string{"-config", cfgPath, "-key", privPath}); err == nil {
 		t.Fatal("expected error for bad expires_at time")
 	}
 }
@@ -205,7 +199,7 @@ func TestCmdIssueMissingKeyIDInConfig(t *testing.T) {
 	if err := os.WriteFile(cfgPath, data, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := cmdIssue([]string{"-config", cfgPath, "-key", privPath}); err == nil {
+	if _, err := callCmd(cmdIssue, []string{"-config", cfgPath, "-key", privPath}); err == nil {
 		t.Fatal("expected error for missing config.key_id")
 	}
 }
@@ -237,21 +231,15 @@ func TestCmdIssueOverridesAndForce(t *testing.T) {
 		t.Fatal(err)
 	}
 	licPath := filepath.Join(dir, "license.json")
-	if _, err := captureStdout(t, func() error {
-		return cmdIssue([]string{"-config", cfgPath, "-key", privPath, "-out", licPath, "-covered-max-version", "1.9.0"})
-	}); err != nil {
+	if _, err := callCmd(cmdIssue, []string{"-config", cfgPath, "-key", privPath, "-out", licPath, "-covered-max-version", "1.9.0"}); err != nil {
 		t.Fatalf("first issue: %v", err)
 	}
 	// Second issue to the same path without -force must fail (no-clobber).
-	if _, err := captureStdout(t, func() error {
-		return cmdIssue([]string{"-config", cfgPath, "-key", privPath, "-out", licPath})
-	}); err == nil {
+	if _, err := callCmd(cmdIssue, []string{"-config", cfgPath, "-key", privPath, "-out", licPath}); err == nil {
 		t.Fatal("expected no-clobber error re-issuing to existing -out without -force")
 	}
 	// With -force it must overwrite.
-	if _, err := captureStdout(t, func() error {
-		return cmdIssue([]string{"-config", cfgPath, "-key", privPath, "-out", licPath, "-force"})
-	}); err != nil {
+	if _, err := callCmd(cmdIssue, []string{"-config", cfgPath, "-key", privPath, "-out", licPath, "-force"}); err != nil {
 		t.Fatalf("forced re-issue: %v", err)
 	}
 }
@@ -260,9 +248,7 @@ func TestCmdIssueOverridesAndForce(t *testing.T) {
 func TestCmdIssueStdout(t *testing.T) {
 	dir, privPath, _ := newTestKeyPair(t, "k1")
 	cfgPath := writeIssueConfig(t, dir, "k1")
-	out, err := captureStdout(t, func() error {
-		return cmdIssue([]string{"-config", cfgPath, "-key", privPath})
-	})
+	out, err := callCmd(cmdIssue, []string{"-config", cfgPath, "-key", privPath})
 	if err != nil {
 		t.Fatalf("cmdIssue stdout: %v", err)
 	}
@@ -275,7 +261,7 @@ func TestCmdIssueStdout(t *testing.T) {
 func TestCmdIssueMissingKeyFile(t *testing.T) {
 	dir, _, _ := newTestKeyPair(t, "k1")
 	cfgPath := writeIssueConfig(t, dir, "k1")
-	if err := cmdIssue([]string{"-config", cfgPath, "-key", filepath.Join(dir, "no-such.key")}); err == nil {
+	if _, err := callCmd(cmdIssue, []string{"-config", cfgPath, "-key", filepath.Join(dir, "no-such.key")}); err == nil {
 		t.Fatal("expected error for missing private key file")
 	}
 }
@@ -285,11 +271,12 @@ func TestCmdIssueMissingKeyFile(t *testing.T) {
 // v2 lists require -sequence; without it the build fails as a usage error.
 func TestCmdRevokeListV2RequiresSequence(t *testing.T) {
 	_, privPath, _ := newTestKeyPair(t, "k1")
-	err := cmdRevokeList([]string{"-key", privPath, "-key-id", "k1", "-ids", "lic_a", "-ttl", "1h"})
+	_, err := callCmd(cmdRevokeList, []string{"-key", privPath, "-key-id", "k1", "-ids", "lic_a", "-ttl", "1h"})
 	if err == nil {
 		t.Fatal("expected error when -sequence missing for v2")
 	}
-	if _, ok := err.(*usageError); !ok {
+	var ue *usageError
+	if !errors.As(err, &ue) {
 		t.Fatalf("expected usageError, got %T: %v", err, err)
 	}
 	if !strings.Contains(err.Error(), "-sequence") {
@@ -300,7 +287,7 @@ func TestCmdRevokeListV2RequiresSequence(t *testing.T) {
 // -expires-at and -ttl are mutually exclusive.
 func TestCmdRevokeListV2ExpiryMutuallyExclusive(t *testing.T) {
 	_, privPath, _ := newTestKeyPair(t, "k1")
-	err := cmdRevokeList([]string{
+	_, err := callCmd(cmdRevokeList, []string{
 		"-key", privPath, "-key-id", "k1", "-ids", "lic_a",
 		"-sequence", "1", "-ttl", "1h", "-expires-at", "2999-01-01T00:00:00Z",
 	})
@@ -312,7 +299,7 @@ func TestCmdRevokeListV2ExpiryMutuallyExclusive(t *testing.T) {
 // v2 requires an expiry source; neither -ttl nor -expires-at fails.
 func TestCmdRevokeListV2RequiresExpiry(t *testing.T) {
 	_, privPath, _ := newTestKeyPair(t, "k1")
-	err := cmdRevokeList([]string{"-key", privPath, "-key-id", "k1", "-ids", "lic_a", "-sequence", "1"})
+	_, err := callCmd(cmdRevokeList, []string{"-key", privPath, "-key-id", "k1", "-ids", "lic_a", "-sequence", "1"})
 	if err == nil {
 		t.Fatal("expected error when no expiry provided for v2")
 	}
@@ -321,7 +308,7 @@ func TestCmdRevokeListV2RequiresExpiry(t *testing.T) {
 // A malformed -expires-at value is a usage error.
 func TestCmdRevokeListV2BadExpiresAt(t *testing.T) {
 	_, privPath, _ := newTestKeyPair(t, "k1")
-	err := cmdRevokeList([]string{
+	_, err := callCmd(cmdRevokeList, []string{
 		"-key", privPath, "-key-id", "k1", "-ids", "lic_a",
 		"-sequence", "1", "-expires-at", "nope",
 	})
@@ -334,12 +321,10 @@ func TestCmdRevokeListV2BadExpiresAt(t *testing.T) {
 func TestCmdRevokeListV2ExpiresAtAndListID(t *testing.T) {
 	dir, privPath, pubPath := newTestKeyPair(t, "k1")
 	revPath := filepath.Join(dir, "revocation.json")
-	if _, err := captureStdout(t, func() error {
-		return cmdRevokeList([]string{
-			"-key", privPath, "-key-id", "k1", "-ids", "lic_a",
-			"-sequence", "2", "-expires-at", "2999-01-01T00:00:00Z",
-			"-list-id", "list-1", "-out", revPath,
-		})
+	if _, err := callCmd(cmdRevokeList, []string{
+		"-key", privPath, "-key-id", "k1", "-ids", "lic_a",
+		"-sequence", "2", "-expires-at", "2999-01-01T00:00:00Z",
+		"-list-id", "list-1", "-out", revPath,
 	}); err != nil {
 		t.Fatalf("revoke-list v2 expires-at: %v", err)
 	}
@@ -365,9 +350,7 @@ func TestCmdRevokeListV2ExpiresAtAndListID(t *testing.T) {
 func TestCmdRevokeListV1Legacy(t *testing.T) {
 	dir, privPath, pubPath := newTestKeyPair(t, "k1")
 	revPath := filepath.Join(dir, "revocation-v1.json")
-	if _, err := captureStdout(t, func() error {
-		return cmdRevokeList([]string{"-key", privPath, "-key-id", "k1", "-ids", "lic_v1", "-v1", "-out", revPath})
-	}); err != nil {
+	if _, err := callCmd(cmdRevokeList, []string{"-key", privPath, "-key-id", "k1", "-ids", "lic_v1", "-v1", "-out", revPath}); err != nil {
 		t.Fatalf("revoke-list v1: %v", err)
 	}
 	revData, err := os.ReadFile(revPath)
@@ -398,13 +381,13 @@ func TestCmdRevokeListForce(t *testing.T) {
 	dir, privPath, _ := newTestKeyPair(t, "k1")
 	revPath := filepath.Join(dir, "revocation.json")
 	args := []string{"-key", privPath, "-key-id", "k1", "-ids", "lic_a", "-sequence", "1", "-ttl", "1h", "-out", revPath}
-	if _, err := captureStdout(t, func() error { return cmdRevokeList(args) }); err != nil {
+	if _, err := callCmd(cmdRevokeList, args); err != nil {
 		t.Fatalf("first write: %v", err)
 	}
-	if _, err := captureStdout(t, func() error { return cmdRevokeList(args) }); err == nil {
+	if _, err := callCmd(cmdRevokeList, args); err == nil {
 		t.Fatal("expected no-clobber error without -force")
 	}
-	if _, err := captureStdout(t, func() error { return cmdRevokeList(append(args, "-force")) }); err != nil {
+	if _, err := callCmd(cmdRevokeList, append(args, "-force")); err != nil {
 		t.Fatalf("forced overwrite: %v", err)
 	}
 }
@@ -412,7 +395,7 @@ func TestCmdRevokeListForce(t *testing.T) {
 // A missing ids-file path is a runtime error.
 func TestCmdRevokeListMissingIDsFile(t *testing.T) {
 	dir, privPath, _ := newTestKeyPair(t, "k1")
-	if err := cmdRevokeList([]string{
+	if _, err := callCmd(cmdRevokeList, []string{
 		"-key", privPath, "-key-id", "k1", "-ids-file", filepath.Join(dir, "no-ids.txt"),
 		"-sequence", "1", "-ttl", "1h",
 	}); err == nil {
@@ -423,7 +406,7 @@ func TestCmdRevokeListMissingIDsFile(t *testing.T) {
 // A missing private key file fails before signing.
 func TestCmdRevokeListMissingKeyFile(t *testing.T) {
 	dir, _, _ := newTestKeyPair(t, "k1")
-	if err := cmdRevokeList([]string{
+	if _, err := callCmd(cmdRevokeList, []string{
 		"-key", filepath.Join(dir, "no-such.key"), "-key-id", "k1",
 		"-ids", "lic_a", "-sequence", "1", "-ttl", "1h",
 	}); err == nil {
@@ -436,9 +419,7 @@ func TestCmdRevokeListMissingKeyFile(t *testing.T) {
 // The -json branch prints the full fingerprint object (or reports insufficient
 // hardware info on fallback platforms). Anything else is a failure.
 func TestCmdFingerprintJSON(t *testing.T) {
-	out, err := captureStdout(t, func() error {
-		return cmdFingerprint([]string{"-namespace", "ns", "-json"})
-	})
+	out, err := callCmd(cmdFingerprint, []string{"-namespace", "ns", "-json"})
 	if err != nil {
 		if !strings.Contains(err.Error(), "insufficient hardware info") {
 			t.Fatalf("unexpected fingerprint -json error: %v", err)
@@ -491,7 +472,7 @@ func TestMarshalIndentEnvelopeError(t *testing.T) {
 // A missing license file makes the initial os.ReadFile fail.
 func TestCmdInspectMissingLicenseFile(t *testing.T) {
 	dir, _, pubPath := newTestKeyPair(t, "k1")
-	if err := cmdInspect([]string{"-license", filepath.Join(dir, "no-license.json"), "-pubkey", pubPath}); err == nil {
+	if _, err := callCmd(cmdInspect, []string{"-license", filepath.Join(dir, "no-license.json"), "-pubkey", pubPath}); err == nil {
 		t.Fatal("expected error for missing license file")
 	}
 }
@@ -500,7 +481,7 @@ func TestCmdInspectMissingLicenseFile(t *testing.T) {
 func TestCmdInspectMissingPubkeyFile(t *testing.T) {
 	dir, privPath, _ := newTestKeyPair(t, "k1")
 	licPath := issueTestLicense(t, dir, "k1", privPath)
-	if err := cmdInspect([]string{"-license", licPath, "-pubkey", filepath.Join(dir, "no-pub.key")}); err == nil {
+	if _, err := callCmd(cmdInspect, []string{"-license", licPath, "-pubkey", filepath.Join(dir, "no-pub.key")}); err == nil {
 		t.Fatal("expected error for missing pubkey file")
 	}
 }
@@ -514,7 +495,7 @@ func TestCmdInspectBadEnvelopeForKeyID(t *testing.T) {
 	if err := os.WriteFile(bad, []byte("{not json"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := cmdInspect([]string{"-license", bad, "-pubkey", pubPath}); err == nil {
+	if _, err := callCmd(cmdInspect, []string{"-license", bad, "-pubkey", pubPath}); err == nil {
 		t.Fatal("expected error for malformed license envelope")
 	}
 }
@@ -524,7 +505,7 @@ func TestCmdInspectBadEnvelopeForKeyID(t *testing.T) {
 func TestCmdInspectWrongKeyID(t *testing.T) {
 	dir, privPath, pubPath := newTestKeyPair(t, "k1")
 	licPath := issueTestLicense(t, dir, "k1", privPath)
-	if err := cmdInspect([]string{"-license", licPath, "-pubkey", pubPath, "-key-id", "wrong-id"}); err == nil {
+	if _, err := callCmd(cmdInspect, []string{"-license", licPath, "-pubkey", pubPath, "-key-id", "wrong-id"}); err == nil {
 		t.Fatal("expected error when -key-id does not match the license")
 	}
 }
@@ -533,7 +514,7 @@ func TestCmdInspectWrongKeyID(t *testing.T) {
 
 // A missing private key file makes LoadPrivateKey fail.
 func TestCmdPublicKeyMissingKeyFile(t *testing.T) {
-	if err := cmdPublicKey([]string{"-key", filepath.Join(t.TempDir(), "no-such.key")}); err == nil {
+	if _, err := callCmd(cmdPublicKey, []string{"-key", filepath.Join(t.TempDir(), "no-such.key")}); err == nil {
 		t.Fatal("expected error for missing private key file")
 	}
 }
@@ -544,7 +525,7 @@ func TestCmdPublicKeyMissingKeyFile(t *testing.T) {
 func TestCmdVerifyMissingPubkeyFlag(t *testing.T) {
 	dir, privPath, _ := newTestKeyPair(t, "k1")
 	licPath := issueTestLicense(t, dir, "k1", privPath)
-	if err := cmdVerify([]string{"-license", licPath}); err == nil {
+	if _, err := callCmd(cmdVerify, []string{"-license", licPath}); err == nil {
 		t.Fatal("expected error when -pubkey missing")
 	}
 }
@@ -575,7 +556,7 @@ func requireUnwritableDir(t *testing.T) string {
 // the key files.
 func TestCmdKeygenUnwritableOutDir(t *testing.T) {
 	roDir := requireUnwritableDir(t)
-	if err := cmdKeygen([]string{"-key-id", "k1", "-out-dir", filepath.Join(roDir, "keys")}); err == nil {
+	if _, err := callCmd(cmdKeygen, []string{"-key-id", "k1", "-out-dir", filepath.Join(roDir, "keys")}); err == nil {
 		t.Fatal("expected error writing keys into a non-writable directory")
 	}
 }
@@ -586,9 +567,7 @@ func TestCmdIssueUnwritableOut(t *testing.T) {
 	cfgPath := writeIssueConfig(t, dir, "k1")
 	roDir := requireUnwritableDir(t)
 	out := filepath.Join(roDir, "license.json")
-	if _, err := captureStdout(t, func() error {
-		return cmdIssue([]string{"-config", cfgPath, "-key", privPath, "-out", out})
-	}); err == nil {
+	if _, err := callCmd(cmdIssue, []string{"-config", cfgPath, "-key", privPath, "-out", out}); err == nil {
 		t.Fatal("expected error issuing into a non-writable directory")
 	}
 }
@@ -599,11 +578,9 @@ func TestCmdRevokeListUnwritableOut(t *testing.T) {
 	_, privPath, _ := newTestKeyPair(t, "k1")
 	roDir := requireUnwritableDir(t)
 	out := filepath.Join(roDir, "revocation.json")
-	if _, err := captureStdout(t, func() error {
-		return cmdRevokeList([]string{
-			"-key", privPath, "-key-id", "k1", "-ids", "lic_a",
-			"-sequence", "1", "-ttl", "1h", "-out", out,
-		})
+	if _, err := callCmd(cmdRevokeList, []string{
+		"-key", privPath, "-key-id", "k1", "-ids", "lic_a",
+		"-sequence", "1", "-ttl", "1h", "-out", out,
 	}); err == nil {
 		t.Fatal("expected error writing revocation list into a non-writable directory")
 	}
@@ -613,7 +590,7 @@ func TestCmdRevokeListUnwritableOut(t *testing.T) {
 
 // An explicitly empty -namespace value is a usage error, same as omitting it.
 func TestCmdFingerprintEmptyNamespace(t *testing.T) {
-	if err := cmdFingerprint([]string{"-namespace", ""}); err == nil {
+	if _, err := callCmd(cmdFingerprint, []string{"-namespace", ""}); err == nil {
 		t.Fatal("expected error for empty -namespace")
 	}
 }

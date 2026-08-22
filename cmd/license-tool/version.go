@@ -3,17 +3,19 @@ package main
 import (
 	"flag"
 	"fmt"
+	"io"
 )
 
 // version is the CLI build version. It defaults to "dev" for local builds and
 // is overridden at release time via goreleaser ldflags (-X main.version=...).
 var version = "dev"
 
-func cmdVersion(args []string) error {
+func cmdVersion(args []string, stdout, stderr io.Writer) error {
 	fs := flag.NewFlagSet("version", flag.ContinueOnError)
-	if err := fs.Parse(args); err != nil {
+	fs.SetOutput(stderr)
+	if err := parseFlags(fs, args); err != nil {
 		return err
 	}
-	fmt.Printf("license-tool %s\n", version)
+	fmt.Fprintf(stdout, "license-tool %s\n", version)
 	return nil
 }

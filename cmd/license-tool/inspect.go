@@ -4,21 +4,23 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 
 	"github.com/soulteary/grantseal/pkg/license"
 )
 
-func cmdInspect(args []string) error {
+func cmdInspect(args []string, stdout, stderr io.Writer) error {
 	fs := flag.NewFlagSet("inspect", flag.ContinueOnError)
+	fs.SetOutput(stderr)
 	licPath := fs.String("license", "", "path to the license file (required)")
 	pubPath := fs.String("pubkey", "", "path to a Base64URL public key file (required)")
 	keyID := fs.String("key-id", "", "key_id for the public key (default: from license)")
-	if err := fs.Parse(args); err != nil {
+	if err := parseFlags(fs, args); err != nil {
 		return err
 	}
 	if *licPath == "" || *pubPath == "" {
-		return fmt.Errorf("inspect: -license and -pubkey are required")
+		return usageErrorf("inspect: -license and -pubkey are required")
 	}
 	licData, err := os.ReadFile(*licPath)
 	if err != nil {
@@ -49,7 +51,7 @@ func cmdInspect(args []string) error {
 	if err != nil {
 		return err
 	}
-	fmt.Println(string(out))
-	fmt.Fprintln(os.Stderr, "note: signature verified; policy checks (time/device/product) NOT applied")
+	fmt.Fprintln(stdout, string(out))
+	fmt.Fprintln(stderr, "note: signature verified; policy checks (time/device/product) NOT applied")
 	return nil
 }

@@ -11,19 +11,13 @@ import (
 
 // cmdFingerprint -request-code and -json exercise those output branches.
 func TestCmdFingerprintOutputModes(t *testing.T) {
-	if _, err := captureStdout(t, func() error {
-		return cmdFingerprint([]string{"-namespace", "prod-1", "-request-code"})
-	}); err != nil {
+	if _, err := callCmd(cmdFingerprint, []string{"-namespace", "prod-1", "-request-code"}); err != nil {
 		t.Fatalf("fingerprint -request-code: %v", err)
 	}
-	if _, err := captureStdout(t, func() error {
-		return cmdFingerprint([]string{"-namespace", "prod-1", "-json"})
-	}); err != nil {
+	if _, err := callCmd(cmdFingerprint, []string{"-namespace", "prod-1", "-json"}); err != nil {
 		t.Fatalf("fingerprint -json: %v", err)
 	}
-	if _, err := captureStdout(t, func() error {
-		return cmdFingerprint([]string{"-namespace", "prod-1", "-v2", "-request-code"})
-	}); err != nil {
+	if _, err := callCmd(cmdFingerprint, []string{"-namespace", "prod-1", "-v2", "-request-code"}); err != nil {
 		t.Fatalf("fingerprint -v2 -request-code: %v", err)
 	}
 }
@@ -32,7 +26,7 @@ func TestCmdFingerprintOutputModes(t *testing.T) {
 func TestCmdVerifyMissingProduct(t *testing.T) {
 	dir, privPath, pubPath := newTestKeyPair(t, "k1")
 	licPath := issueTestLicense(t, dir, "k1", privPath)
-	if err := cmdVerify([]string{"-license", licPath, "-pubkey", pubPath}); err == nil {
+	if _, err := callCmd(cmdVerify, []string{"-license", licPath, "-pubkey", pubPath}); err == nil {
 		t.Fatal("expected usage error for missing -product")
 	}
 }
@@ -46,7 +40,7 @@ func TestCmdVerifyBadPubKeyContents(t *testing.T) {
 	if err := os.WriteFile(badPub, []byte("!!!not-base64!!!"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := cmdVerify([]string{"-license", licPath, "-pubkey", badPub, "-key-id", "k1", "-product", "prod-1"}); err == nil {
+	if _, err := callCmd(cmdVerify, []string{"-license", licPath, "-pubkey", badPub, "-key-id", "k1", "-product", "prod-1"}); err == nil {
 		t.Fatal("expected error for invalid public key contents")
 	}
 }
@@ -59,7 +53,7 @@ func TestCmdVerifyBadRevocation(t *testing.T) {
 	if err := os.WriteFile(badRev, []byte("{not-json"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := cmdVerify([]string{"-license", licPath, "-pubkey", pubPath, "-product", "prod-1", "-revocation", badRev}); err == nil {
+	if _, err := callCmd(cmdVerify, []string{"-license", licPath, "-pubkey", pubPath, "-product", "prod-1", "-revocation", badRev}); err == nil {
 		t.Fatal("expected error for malformed revocation list")
 	}
 }
@@ -72,7 +66,7 @@ func TestCmdInspectBadPubKeyContents(t *testing.T) {
 	if err := os.WriteFile(badPub, []byte("!!!not-base64!!!"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := cmdInspect([]string{"-license", licPath, "-pubkey", badPub, "-key-id", "k1"}); err == nil {
+	if _, err := callCmd(cmdInspect, []string{"-license", licPath, "-pubkey", badPub, "-key-id", "k1"}); err == nil {
 		t.Fatal("expected error for invalid public key contents")
 	}
 }
@@ -92,11 +86,9 @@ func TestToRequestBadTimes(t *testing.T) {
 func TestCmdRevokeListOutFile(t *testing.T) {
 	dir, privPath, _ := newTestKeyPair(t, "k1")
 	outPath := filepath.Join(dir, "rev.json")
-	if _, err := captureStdout(t, func() error {
-		return cmdRevokeList([]string{
-			"-key", privPath, "-key-id", "k1", "-ids", "lic_a,lic_b",
-			"-sequence", "2", "-ttl", "100h", "-out", outPath,
-		})
+	if _, err := callCmd(cmdRevokeList, []string{
+		"-key", privPath, "-key-id", "k1", "-ids", "lic_a,lic_b",
+		"-sequence", "2", "-ttl", "100h", "-out", outPath,
 	}); err != nil {
 		t.Fatalf("revoke-list -out: %v", err)
 	}
@@ -118,7 +110,7 @@ func TestCmdRevokeListOutFile(t *testing.T) {
 // checks size); use an empty key-id to hit the usage-error arm instead.
 func TestCmdRevokeListMissingKeyID(t *testing.T) {
 	dir, privPath, _ := newTestKeyPair(t, "k1")
-	if err := cmdRevokeList([]string{"-key", privPath, "-ids", "lic_a", "-sequence", "1", "-ttl", "10h"}); err == nil {
+	if _, err := callCmd(cmdRevokeList, []string{"-key", privPath, "-ids", "lic_a", "-sequence", "1", "-ttl", "10h"}); err == nil {
 		t.Fatal("expected usage error for missing -key-id")
 	}
 	_ = dir

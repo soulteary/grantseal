@@ -3,6 +3,8 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
+	"flag"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -12,11 +14,47 @@ import (
 
 func timeNow() time.Time { return time.Now().UTC() }
 
-// usageError marks an error as a command-usage problem (missing/invalid flags)
-// so main can map it to exit code 2, distinct from runtime failures (exit 1).
-type usageError struct{ msg string }
+// usageError marks an error as a command-usage problem (missing/invalid flags,
+// unknown flags, bad enum/duration/RFC3339 input) so run maps it to exit code 2,
+// distinct from runtime failures (exit 1). It optionally wraps an underlying
+// error (e.g. the flag package's parse error) so errors.Is/As keep working.
+type usageError struct {
+	msg string
+	err error
+}
 
-func (e *usageError) Error() string { return e.msg }
+func (e *usageError) Error() string {
+	if e.err != nil {
+		if e.msg == "" {
+			return e.err.Error()
+		}
+		return e.msg + ": " + e.err.Error()
+	}
+	return e.msg
+}
+
+func (e *usageError) Unwrap() error { return e.err }
+
+// usageErrorf builds a usageError from a printf-style message.
+func usageErrorf(format string, args ...any) *usageError {
+	return &usageError{msg: fmt.Sprintf(format, args...)}
+}
+
+// parseFlags parses args into fs and normalizes the outcome for the exit-code
+// contract: a request for help (flag.ErrHelp) is passed through unchanged so
+// run can treat it as success (exit 0); any other parse failure is wrapped as a
+// *usageError so run maps it to a usage exit (exit 2). The flag set's usage/error
+// text is written to fs.Output(), which callers point at the injected stderr.
+func parseFlags(fs *flag.FlagSet, args []string) error {
+	err := fs.Parse(args)
+	if err == nil {
+		return nil
+	}
+	if errors.Is(err, flag.ErrHelp) {
+		return err
+	}
+	return &usageError{msg: fmt.Sprintf("%s: invalid flags", fs.Name()), err: err}
+}
 
 // writeFileNoClobber durably writes data to path.
 //

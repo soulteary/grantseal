@@ -5,21 +5,23 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 
 	"github.com/soulteary/grantseal/pkg/fingerprint"
 )
 
-func cmdFingerprint(args []string) error {
+func cmdFingerprint(args []string, stdout, stderr io.Writer) error {
 	fs := flag.NewFlagSet("fingerprint", flag.ContinueOnError)
+	fs.SetOutput(stderr)
 	ns := fs.String("namespace", "", "product namespace (required)")
 	jsonOut := fs.Bool("json", false, "print full fingerprint JSON")
 	code := fs.Bool("request-code", false, "print the human-friendly request code")
 	useV2 := fs.Bool("v2", false, "use the v2 per-platform primary-identifier scheme")
-	if err := fs.Parse(args); err != nil {
+	if err := parseFlags(fs, args); err != nil {
 		return err
 	}
 	if *ns == "" {
-		return fmt.Errorf("fingerprint: -namespace is required")
+		return usageErrorf("fingerprint: -namespace is required")
 	}
 	compute := fingerprint.Compute
 	requestCode := fingerprint.RequestCode
@@ -39,7 +41,7 @@ func cmdFingerprint(args []string) error {
 		if cerr != nil {
 			return cerr
 		}
-		fmt.Println(rc)
+		fmt.Fprintln(stdout, rc)
 		return nil
 	}
 	if *jsonOut {
@@ -47,9 +49,9 @@ func cmdFingerprint(args []string) error {
 		if merr != nil {
 			return merr
 		}
-		fmt.Println(string(b))
+		fmt.Fprintln(stdout, string(b))
 		return nil
 	}
-	fmt.Println(fp.Fingerprint)
+	fmt.Fprintln(stdout, fp.Fingerprint)
 	return nil
 }

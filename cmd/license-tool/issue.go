@@ -3,6 +3,7 @@ package main
 import (
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"time"
 
@@ -43,18 +44,19 @@ type versionConstraintCfg struct {
 	CoveredMaxVersion string `json:"covered_max_version,omitempty"`
 }
 
-func cmdIssue(args []string) error {
+func cmdIssue(args []string, stdout, stderr io.Writer) error {
 	fs := flag.NewFlagSet("issue", flag.ContinueOnError)
+	fs.SetOutput(stderr)
 	configPath := fs.String("config", "", "path to issue-config.json (required)")
 	keyPath := fs.String("key", "", "path to the private key file (required)")
 	out := fs.String("out", "", "output license file path (default stdout)")
 	force := fs.Bool("force", false, "overwrite existing output file")
 	coveredMaxVersion := fs.String("covered-max-version", "", "override version_constraint.covered_max_version (highest version still covered after maintenance lapses)")
-	if err := fs.Parse(args); err != nil {
+	if err := parseFlags(fs, args); err != nil {
 		return err
 	}
 	if *configPath == "" || *keyPath == "" {
-		return fmt.Errorf("issue: -config and -key are required")
+		return usageErrorf("issue: -config and -key are required")
 	}
 
 	cfgData, err := os.ReadFile(*configPath)
@@ -63,7 +65,7 @@ func cmdIssue(args []string) error {
 	}
 	var cfg issueConfig
 	if err := license.DecodeStrictJSON(cfgData, &cfg, license.MaxLicenseFileSize); err != nil {
-		return fmt.Errorf("issue: parse config: %w", err)
+		return &usageError{msg: "issue: parse config", err: err}
 	}
 
 	// A non-empty -covered-max-version flag overrides the config value.
@@ -82,7 +84,7 @@ func cmdIssue(args []string) error {
 	}
 	keyID := cfg.KeyID
 	if keyID == "" {
-		return fmt.Errorf("issue: config.key_id is required")
+		return usageErrorf("issue: config.key_id is required")
 	}
 	signer, err := issuer.NewSigner(keyID, priv)
 	if err != nil {
@@ -97,28 +99,28 @@ func cmdIssue(args []string) error {
 		return err
 	}
 	if *out == "" {
-		fmt.Println(string(data))
+		fmt.Fprintln(stdout, string(data))
 		return nil
 	}
 	if err := writeFileNoClobber(*out, data, 0o644, *force); err != nil {
 		return err
 	}
-	fmt.Fprintf(os.Stderr, "issued license -> %s\n", *out)
+	fmt.Fprintf(stderr, "issued license -> %s\n", *out)
 	return nil
 }
 
 func (c issueConfig) toRequest() (issuer.IssueRequest, error) {
 	nb, err := parseOptTime(c.NotBefore)
 	if err != nil {
-		return issuer.IssueRequest{}, fmt.Errorf("issue: not_before: %w", err)
+		return issuer.IssueRequest{}, &usageError{msg: "issue: not_before", err: err}
 	}
 	exp, err := parseOptTime(c.ExpiresAt)
 	if err != nil {
-		return issuer.IssueRequest{}, fmt.Errorf("issue: expires_at: %w", err)
+		return issuer.IssueRequest{}, &usageError{msg: "issue: expires_at", err: err}
 	}
 	mu, err := parseOptTime(c.VersionConstraint.MaintenanceUntil)
 	if err != nil {
-		return issuer.IssueRequest{}, fmt.Errorf("issue: maintenance_until: %w", err)
+		return issuer.IssueRequest{}, &usageError{msg: "issue: maintenance_until", err: err}
 	}
 	mode := license.DeviceMode(c.DeviceBinding.Mode)
 	if mode == "" {

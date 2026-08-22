@@ -3,14 +3,16 @@ package main
 import (
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 
 	"github.com/soulteary/grantseal/pkg/license"
 )
 
-func cmdVerify(args []string) error {
+func cmdVerify(args []string, stdout, stderr io.Writer) error {
 	fs := flag.NewFlagSet("verify", flag.ContinueOnError)
+	fs.SetOutput(stderr)
 	licPath := fs.String("license", "", "path to the license file (required)")
 	pubPath := fs.String("pubkey", "", "path to a Base64URL public key file (required)")
 	keyID := fs.String("key-id", "", "key_id for the public key (default: derive from license)")
@@ -19,7 +21,7 @@ func cmdVerify(args []string) error {
 	device := fs.String("device", "", "device fingerprint (optional)")
 	revPath := fs.String("revocation", "", "path to a signed revocation list (optional)")
 	clockSkew := fs.Duration("clock-skew", 0, "tolerated clock skew (e.g. 2s, 5m); 0 uses the default/env value")
-	if err := fs.Parse(args); err != nil {
+	if err := parseFlags(fs, args); err != nil {
 		return err
 	}
 	if *licPath == "" || *pubPath == "" {
@@ -80,26 +82,26 @@ func cmdVerify(args []string) error {
 	}
 
 	res, verr := mgr.Validate(licData, ctx)
-	printResult(res)
+	printResult(stdout, res)
 	if verr != nil {
 		return fmt.Errorf("%s", license.CodeOf(verr))
 	}
 	return nil
 }
 
-func printResult(res license.ValidationResult) {
-	fmt.Printf("status:      %s\n", res.Status())
-	fmt.Printf("code:        %s\n", res.Code())
+func printResult(w io.Writer, res license.ValidationResult) {
+	fmt.Fprintf(w, "status:      %s\n", res.Status())
+	fmt.Fprintf(w, "code:        %s\n", res.Code())
 	if res.LicenseID() != "" {
-		fmt.Printf("license_id:  %s\n", res.LicenseID())
-		fmt.Printf("product_id:  %s\n", res.ProductID())
-		fmt.Printf("edition:     %s\n", res.Edition())
-		fmt.Printf("type:        %s\n", res.LicenseType())
+		fmt.Fprintf(w, "license_id:  %s\n", res.LicenseID())
+		fmt.Fprintf(w, "product_id:  %s\n", res.ProductID())
+		fmt.Fprintf(w, "edition:     %s\n", res.Edition())
+		fmt.Fprintf(w, "type:        %s\n", res.LicenseType())
 		if exp := res.ExpiresAt(); exp != nil {
-			fmt.Printf("expires_at:  %s\n", exp.Format("2006-01-02T15:04:05Z07:00"))
+			fmt.Fprintf(w, "expires_at:  %s\n", exp.Format("2006-01-02T15:04:05Z07:00"))
 		}
 		if feats := res.Features(); len(feats) > 0 {
-			fmt.Printf("features:    %s\n", strings.Join(feats, ", "))
+			fmt.Fprintf(w, "features:    %s\n", strings.Join(feats, ", "))
 		}
 	}
 }

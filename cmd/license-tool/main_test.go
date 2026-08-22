@@ -2,148 +2,172 @@ package main
 
 import (
 	"os"
-	"os/exec"
 	"strings"
 	"testing"
 )
 
-// mainTestEnv, when set, tells the re-executed test binary to run main() and
-// exit instead of running the test suite. This is the classic Go subprocess
-// pattern for covering functions that call os.Exit (main here). See
-// https://pkg.go.dev/os#Exit and the stdlib's own os/exec tests for the shape.
-const mainTestEnv = "GRANTSEAL_TEST_MAIN"
+// The exit-code contract is verified directly through run(args, stdout, stderr)
+// with buffered streams. No subprocess re-exec or os.Exit is needed: run returns
+// the code that main() would pass to os.Exit, and never exits the process
+// itself, so tests assert both the code and the output stream a real invocation
+// would produce.
 
-// TestMain intercepts the special env var: when it is set the process behaves as
-// the license-tool binary (dispatching os.Args[2:] through main()), otherwise it
-// runs the normal test suite. os.Args is rewritten so main() sees the caller's
-// desired argv (the requested subcommand and flags follow the env sentinel).
-func TestMain(m *testing.M) {
-	if os.Getenv(mainTestEnv) == "1" {
-		// os.Args here is: [test-binary, <subcommand>, <flags...>]. main() reads
-		// os.Args[1:], so leave it as-is and just invoke main().
-		main()
-		return
+// Successful invocations and every help form return exit code 0.
+func TestRunExitZero(t *testing.T) {
+	cases := []struct {
+		name     string
+		args     []string
+		wantOut  string // substring expected on stdout
+		wantErr  string // substring expected on stderr ("" = no assertion)
+		wantCode int
+	}{
+		{"version", []string{"version"}, "license-tool", "", exitOK},
+		{"version alias -v", []string{"-v"}, "license-tool", "", exitOK},
+		{"version alias --version", []string{"--version"}, "license-tool", "", exitOK},
+		{"top-level help", []string{"help"}, "Usage:", "", exitOK},
+		{"top-level -h", []string{"-h"}, "Usage:", "", exitOK},
+		{"top-level --help", []string{"--help"}, "Usage:", "", exitOK},
 	}
-	os.Exit(m.Run())
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			out, errOut, code := runCLI(tc.args...)
+			if code != tc.wantCode {
+				t.Fatalf("code = %d, want %d (stdout=%q stderr=%q)", code, tc.wantCode, out, errOut)
+			}
+			if tc.wantOut != "" && !strings.Contains(out, tc.wantOut) {
+				t.Fatalf("stdout %q missing %q", out, tc.wantOut)
+			}
+		})
+	}
 }
 
-// runMain re-execs this test binary with GRANTSEAL_TEST_MAIN=1 so the child
-// process runs main() with the supplied args. It returns combined output and
-// the child's exit code (0 on success).
-func runMain(t *testing.T, args ...string) (string, int) {
+// A subcommand's -h/-help requests help: the flag package returns flag.ErrHelp,
+// which run classifies as success (exit 0). The flag package writes its own
+// usage text to the injected stderr; run adds no "error:" diagnostic.
+func TestRunSubcommandHelpExitZero(t *testing.T) {
+	for _, sub := range []string{"keygen", "public-key", "issue", "verify", "inspect", "fingerprint", "revoke-list", "version"} {
+		for _, flag := range []string{"-h", "--help"} {
+			out, errOut, code := runCLI(sub, flag)
+			if code != exitOK {
+				t.Fatalf("%s %s: code = %d, want 0 (stdout=%q stderr=%q)", sub, flag, code, out, errOut)
+			}
+			if strings.Contains(errOut, "error:") {
+				t.Fatalf("%s %s: help should not print an error diagnostic, got stderr=%q", sub, flag, errOut)
+			}
+		}
+	}
+}
+
+// Usage errors (exit 2): no args, unknown command, unknown flag, missing
+// required flags, and malformed user input (duration / RFC3339 / enum / bool /
+// number). Each writes a diagnostic to stderr, never stdout.
+func TestRunUsageErrorsExitTwo(t *testing.T) {
+	_, privPath, pubPath := newTestKeyPair(t, "k1")
+	licPath := issueTestLicense(t, t.TempDir(), "k1", privPath)
+
+	cases := []struct {
+		name string
+		args []string
+	}{
+		{"no args", nil},
+		{"unknown command", []string{"definitely-not-a-command"}},
+
+		{"unknown flag keygen", []string{"keygen", "-nope"}},
+		{"unknown flag verify", []string{"verify", "-nope"}},
+
+		{"keygen missing key-id", []string{"keygen"}},
+		{"public-key missing key", []string{"public-key"}},
+		{"issue missing flags", []string{"issue"}},
+		{"verify missing flags", []string{"verify"}},
+		{"verify missing product", []string{"verify", "-license", licPath, "-pubkey", pubPath}},
+		{"inspect missing flags", []string{"inspect"}},
+		{"fingerprint missing namespace", []string{"fingerprint"}},
+		{"revoke-list missing key/key-id", []string{"revoke-list"}},
+
+		// Malformed user input parsed by the flag package -> usage (2).
+		{"bad duration ttl", []string{"revoke-list", "-key", privPath, "-key-id", "k1", "-ids", "lic_a", "-ttl", "not-a-duration"}},
+		{"bad duration clock-skew", []string{"verify", "-license", licPath, "-pubkey", pubPath, "-product", "p", "-clock-skew", "5"}},
+		{"bad bool force", []string{"issue", "-force=notabool"}},
+		{"bad number sequence", []string{"revoke-list", "-key", privPath, "-key-id", "k1", "-sequence", "not-a-number"}},
+
+		// Malformed user input parsed by the command body -> usage (2).
+		{"bad RFC3339 expires-at", []string{"revoke-list", "-key", privPath, "-key-id", "k1", "-ids", "lic_a", "-sequence", "1", "-expires-at", "nope"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			out, errOut, code := runCLI(tc.args...)
+			if code != exitUsage {
+				t.Fatalf("code = %d, want 2 (stdout=%q stderr=%q)", code, out, errOut)
+			}
+			if strings.TrimSpace(out) != "" {
+				t.Fatalf("usage error must not write to stdout, got %q", out)
+			}
+			if strings.TrimSpace(errOut) == "" {
+				t.Fatal("usage error should write a diagnostic to stderr")
+			}
+		})
+	}
+}
+
+// A malformed issue config (unknown field) is user input -> usage (2).
+func TestRunIssueBadConfigExitTwo(t *testing.T) {
+	dir, privPath, _ := newTestKeyPair(t, "k1")
+	cfg := writeBadIssueConfig(t, dir)
+	_, errOut, code := runCLI("issue", "-config", cfg, "-key", privPath)
+	if code != exitUsage {
+		t.Fatalf("bad config code = %d, want 2 (stderr=%q)", code, errOut)
+	}
+}
+
+// Runtime/domain errors (exit 1): file I/O, key loading, and license rejection.
+func TestRunRuntimeErrorsExitOne(t *testing.T) {
+	dir, privPath, pubPath := newTestKeyPair(t, "k1")
+	licPath := issueTestLicense(t, dir, "k1", privPath)
+
+	cases := []struct {
+		name string
+		args []string
+	}{
+		{"issue missing config file", []string{"issue", "-config", dir + "/no-such.json", "-key", privPath}},
+		{"issue missing key file", []string{"issue", "-config", writeIssueConfig(t, dir, "k1"), "-key", dir + "/no-such.key"}},
+		{"verify missing license file", []string{"verify", "-license", dir + "/no-such.json", "-pubkey", pubPath, "-product", "prod-1"}},
+		{"verify license rejected (wrong product)", []string{"verify", "-license", licPath, "-pubkey", pubPath, "-product", "other-product"}},
+		{"public-key missing key file", []string{"public-key", "-key", dir + "/no-such.key"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			out, errOut, code := runCLI(tc.args...)
+			if code != exitRuntime {
+				t.Fatalf("code = %d, want 1 (stdout=%q stderr=%q)", code, out, errOut)
+			}
+			if !strings.Contains(errOut, "error:") {
+				t.Fatalf("runtime error should print an 'error:' diagnostic to stderr, got %q", errOut)
+			}
+		})
+	}
+}
+
+// Success paths (exit 0) that produce real output and side effects.
+func TestRunSuccessExitZero(t *testing.T) {
+	dir, privPath, pubPath := newTestKeyPair(t, "k1")
+	licPath := issueTestLicense(t, dir, "k1", privPath)
+
+	out, errOut, code := runCLI("verify", "-license", licPath, "-pubkey", pubPath, "-product", "prod-1")
+	if code != exitOK {
+		t.Fatalf("verify code = %d, want 0 (stderr=%q)", code, errOut)
+	}
+	if !strings.Contains(out, "status:") {
+		t.Fatalf("verify stdout missing status: %q", out)
+	}
+}
+
+// writeBadIssueConfig writes a config JSON with an unknown field so strict
+// decoding rejects it, and returns its path.
+func writeBadIssueConfig(t *testing.T, dir string) string {
 	t.Helper()
-	cmd := exec.Command(os.Args[0], args...)
-	cmd.Env = append(os.Environ(), mainTestEnv+"=1")
-	out, err := cmd.CombinedOutput()
-	if err == nil {
-		return string(out), 0
+	path := dir + "/bad-config.json"
+	if err := os.WriteFile(path, []byte(`{"unknown_field": true}`), 0o644); err != nil {
+		t.Fatalf("write bad config: %v", err)
 	}
-	ee, ok := err.(*exec.ExitError)
-	if !ok {
-		t.Fatalf("runMain %v: unexpected error type %T: %v", args, err, err)
-	}
-	return string(out), ee.ExitCode()
-}
-
-// The version subcommand dispatches through main() to cmdVersion and exits 0.
-func TestMainVersion(t *testing.T) {
-	out, code := runMain(t, "version")
-	if code != 0 {
-		t.Fatalf("version exit code = %d, want 0 (output: %q)", code, out)
-	}
-	if !strings.Contains(out, "license-tool") {
-		t.Fatalf("version output missing name: %q", out)
-	}
-}
-
-// The help subcommand prints usage to stdout and returns without os.Exit (0).
-func TestMainHelp(t *testing.T) {
-	out, code := runMain(t, "help")
-	if code != 0 {
-		t.Fatalf("help exit code = %d, want 0 (output: %q)", code, out)
-	}
-	if !strings.Contains(out, "Usage:") {
-		t.Fatalf("help output missing usage: %q", out)
-	}
-}
-
-// An unknown subcommand prints the usage banner and exits with code 2.
-func TestMainUnknownCommand(t *testing.T) {
-	out, code := runMain(t, "definitely-not-a-command")
-	if code != 2 {
-		t.Fatalf("unknown command exit code = %d, want 2 (output: %q)", code, out)
-	}
-	if !strings.Contains(out, "unknown command") {
-		t.Fatalf("unknown command output missing message: %q", out)
-	}
-}
-
-// No args triggers the usage-and-exit-2 branch (len(os.Args) < 2).
-func TestMainNoArgs(t *testing.T) {
-	out, code := runMain(t)
-	if code != 2 {
-		t.Fatalf("no-args exit code = %d, want 2 (output: %q)", code, out)
-	}
-	if !strings.Contains(out, "Usage:") {
-		t.Fatalf("no-args output missing usage: %q", out)
-	}
-}
-
-// A handler returning a runtime (non-usage) error makes main() exit 1. issue
-// with a missing config file is a read failure, i.e. exit code 1.
-func TestMainRuntimeErrorExit1(t *testing.T) {
-	out, code := runMain(t, "issue", "-config", "/no/such/config.json", "-key", "/no/such.key")
-	if code != 1 {
-		t.Fatalf("runtime-error exit code = %d, want 1 (output: %q)", code, out)
-	}
-	if !strings.Contains(out, "error:") {
-		t.Fatalf("runtime error output missing 'error:' prefix: %q", out)
-	}
-}
-
-// A handler returning a usageError makes main() exit 2. revoke-list without a
-// -sequence for a v2 list yields a *usageError.
-func TestMainUsageErrorExit2(t *testing.T) {
-	_, privPath, _ := newTestKeyPair(t, "k1")
-	out, code := runMain(t, "revoke-list", "-key", privPath, "-key-id", "k1", "-ids", "lic_a", "-ttl", "1h")
-	if code != 2 {
-		t.Fatalf("usage-error exit code = %d, want 2 (output: %q)", code, out)
-	}
-	if !strings.Contains(out, "error:") {
-		t.Fatalf("usage error output missing 'error:' prefix: %q", out)
-	}
-}
-
-// Every remaining switch case in main() must be reachable. We drive each
-// subcommand with a flag that makes its handler fail fast (so no real key/IO is
-// needed), asserting only that main() dispatched it and exited non-zero — this
-// exercises the per-command dispatch statements. The version aliases (-v,
-// --version) route to cmdVersion and exit 0.
-func TestMainDispatchesAllSubcommands(t *testing.T) {
-	nonZero := [][]string{
-		{"keygen"},                              // -key-id required -> exit 1
-		{"public-key"},                          // -key required -> exit 1
-		{"verify"},                              // -license/-pubkey required -> exit 1
-		{"inspect"},                             // -license/-pubkey required -> exit 1
-		{"fingerprint"},                         // -namespace required -> exit 1
-		{"issue"},                               // -config/-key required -> exit 1
-		{"revoke-list"},                         // -key/-key-id required -> exit 1
-		{"keygen", "-this-flag-does-not-exist"}, // flag parse error -> exit 1
-	}
-	for _, args := range nonZero {
-		out, code := runMain(t, args...)
-		if code == 0 {
-			t.Fatalf("%v: expected non-zero exit, got 0 (output: %q)", args, out)
-		}
-	}
-
-	for _, alias := range []string{"-v", "--version"} {
-		out, code := runMain(t, alias)
-		if code != 0 {
-			t.Fatalf("%s exit code = %d, want 0 (output: %q)", alias, code, out)
-		}
-		if !strings.Contains(out, "license-tool") {
-			t.Fatalf("%s output missing name: %q", alias, out)
-		}
-	}
+	return path
 }
