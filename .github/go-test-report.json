@@ -1,22 +1,22 @@
 {
   "schema_version": "1.0",
   "environment": {
-    "commit": "69dcdc471635b2124950921fd258db2af12822c4",
-    "generated_at": "2026-08-22T00:00:00Z",
+    "commit": "2ce121f970973f7eedb05654c7ed1d424fdbb810",
+    "generated_at": "2026-08-22T07:56:13Z",
     "go_version": "go1.26.6",
-    "os": "darwin",
-    "arch": "arm64"
+    "os": "linux",
+    "arch": "amd64"
   },
   "tests": {
-    "total": 396,
-    "passed": 396,
+    "total": 399,
+    "passed": 399,
     "failed": 0,
     "skipped": 0
   },
   "coverage": {
-    "covered_statements": 1809,
-    "total_statements": 1912,
-    "percentage": 94.61,
+    "covered_statements": 1840,
+    "total_statements": 1962,
+    "percentage": 93.78,
     "threshold": 93
   },
   "packages": [
@@ -25,28 +25,28 @@
       "status": "pass",
       "tests": 79,
       "failed": 0,
-      "coverage": 92.86
+      "coverage": 91.8
     },
     {
       "name": "internal/issuer",
       "status": "pass",
-      "tests": 59,
+      "tests": 60,
       "failed": 0,
-      "coverage": 92.97
+      "coverage": 91.73
     },
     {
       "name": "pkg/fingerprint",
       "status": "pass",
       "tests": 26,
       "failed": 0,
-      "coverage": 96.24
+      "coverage": 94.12
     },
     {
       "name": "pkg/license",
       "status": "pass",
-      "tests": 232,
+      "tests": 234,
       "failed": 0,
-      "coverage": 95.43
+      "coverage": 94.97
     }
   ],
   "failures": null
