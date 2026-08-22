@@ -382,7 +382,7 @@ func TestLoadPrivateKeyRejectsGroupReadable(t *testing.T) {
 }
 
 // WriteKeyFiles surfaces a write failure when the target directory is
-// read-only, exercising the writeKeyFileDurable O_EXCL create-failure branch.
+// read-only, exercising the staging temp-file create-failure branch.
 // Skipped when running as root, where directory mode is not enforced.
 func TestWriteKeyFilesReadOnlyDir(t *testing.T) {
 	if runtime.GOOS == "windows" {
@@ -427,10 +427,10 @@ func TestLoadPrivateKeyReadFailure(t *testing.T) {
 	}
 }
 
-// WriteKeyFiles rolls back the already-written private key when the public-key
-// write fails, so a caller never observes a private key without its matching
-// public key. We force the public-key write to fail by pre-creating its path as
-// a directory (the no-force O_EXCL open then fails as "already exists").
+// WriteKeyFiles never touches the private key when a target already exists in
+// no-force mode: pre-creating the public-key path as a directory makes the
+// up-front existence check refuse before any file is staged or committed, so a
+// caller never observes a private key without its matching public key.
 func TestWriteKeyFilesRollsBackOnPublicWriteFailure(t *testing.T) {
 	dir := t.TempDir()
 	kp, err := issuer.GenerateKeyPair("k1")

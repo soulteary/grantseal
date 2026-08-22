@@ -63,70 +63,89 @@ func TestGenerateKeyPairRandError(t *testing.T) {
 	}
 }
 
-func TestWriteKeyFileDurableNoForceOpenError(t *testing.T) {
-	orig := fsOpenFile
-	fsOpenFile = func(string, int, os.FileMode) (*os.File, error) {
-		return nil, errors.New("open denied")
-	}
-	t.Cleanup(func() { fsOpenFile = orig })
-	if err := writeKeyFileDurable(filepath.Join(t.TempDir(), "k"), []byte("x"), 0o600, false); err == nil {
-		t.Fatal("want error when open fails")
-	}
-}
-
-func TestWriteKeyFileDurableForceTempError(t *testing.T) {
+func TestStageKeyFileTempError(t *testing.T) {
 	orig := fsCreateTemp
 	fsCreateTemp = func(string, string) (*os.File, error) { return nil, errors.New("temp denied") }
 	t.Cleanup(func() { fsCreateTemp = orig })
-	if err := writeKeyFileDurable(filepath.Join(t.TempDir(), "k"), []byte("x"), 0o600, true); err == nil {
+	if _, err := stageKeyFile(t.TempDir(), []byte("x"), 0o600); err == nil {
 		t.Fatal("want error when create temp fails")
 	}
 }
 
-func TestWriteKeyFileDurableForceRenameError(t *testing.T) {
-	orig := fsRename
-	fsRename = func(string, string) error { return errors.New("rename denied") }
-	t.Cleanup(func() { fsRename = orig })
-	if err := writeKeyFileDurable(filepath.Join(t.TempDir(), "k"), []byte("x"), 0o600, true); err == nil {
-		t.Fatal("want error when rename fails")
-	}
-}
-
-// TestWriteKeyFileDurableForceWriteError returns a read-only temp file so the
-// subsequent Write fails, exercising the force-mode write-failure arm.
-func TestWriteKeyFileDurableForceWriteError(t *testing.T) {
+// stageKeyFile removes its temp file and errors when the write fails: the
+// injected temp file is reopened read-only so Write returns an error.
+func TestStageKeyFileWriteError(t *testing.T) {
+	dir := t.TempDir()
 	orig := fsCreateTemp
-	fsCreateTemp = func(dir, pattern string) (*os.File, error) {
-		f, err := os.CreateTemp(dir, pattern)
+	fsCreateTemp = func(d, pattern string) (*os.File, error) {
+		f, err := os.CreateTemp(d, pattern)
 		if err != nil {
 			return nil, err
 		}
 		name := f.Name()
 		_ = f.Close()
-		// Reopen read-only so Write returns an error.
 		return os.OpenFile(name, os.O_RDONLY, 0o600)
 	}
 	t.Cleanup(func() { fsCreateTemp = orig })
-	if err := writeKeyFileDurable(filepath.Join(t.TempDir(), "k"), []byte("x"), 0o600, true); err == nil {
+	if _, err := stageKeyFile(dir, []byte("x"), 0o600); err == nil {
 		t.Fatal("want error when writing to read-only temp file")
+	}
+	// No stray temp file should remain after a staging failure.
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("staging failure left %d files behind", len(entries))
 	}
 }
 
-// TestWriteKeyFileDurableNoForceWriteError returns a read-only file for the
-// O_EXCL path so the write fails, covering the no-force write-failure arm.
-func TestWriteKeyFileDurableNoForceWriteError(t *testing.T) {
-	orig := fsOpenFile
-	fsOpenFile = func(name string, _ int, _ os.FileMode) (*os.File, error) {
-		f, err := os.Create(name)
-		if err != nil {
-			return nil, err
-		}
-		_ = f.Close()
-		return os.OpenFile(name, os.O_RDONLY, 0o600)
+// verifyStagedPair rejects a staged private/public pair that does not match.
+func TestVerifyStagedPairMismatch(t *testing.T) {
+	dir := t.TempDir()
+	kp1, _ := GenerateKeyPair("k1")
+	kp2, _ := GenerateKeyPair("k2")
+	privTmp, err := stageKeyFile(dir, []byte(kp1.privateKeyBase64()+"\n"), 0o600)
+	if err != nil {
+		t.Fatal(err)
 	}
-	t.Cleanup(func() { fsOpenFile = orig })
-	if err := writeKeyFileDurable(filepath.Join(t.TempDir(), "k"), []byte("x"), 0o600, false); err == nil {
-		t.Fatal("want error when writing to read-only file")
+	// Public key from a different pair -> mismatch.
+	pubTmp, err := stageKeyFile(dir, []byte(kp2.PublicKeyBase64()+"\n"), 0o644)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := verifyStagedPair(privTmp, pubTmp); err == nil {
+		t.Fatal("want mismatch error for non-matching staged pair")
+	}
+	// A matching pair passes.
+	pubTmp2, err := stageKeyFile(dir, []byte(kp1.PublicKeyBase64()+"\n"), 0o644)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := verifyStagedPair(privTmp, pubTmp2); err != nil {
+		t.Fatalf("matching pair should verify: %v", err)
+	}
+}
+
+// commitStagedKeyFiles surfaces a rename failure on the private-key commit and
+// leaves any pre-existing files restored from backup.
+func TestCommitStagedRenameError(t *testing.T) {
+	orig := fsRename
+	fsRename = func(string, string) error { return errors.New("rename denied") }
+	t.Cleanup(func() { fsRename = orig })
+	dir := t.TempDir()
+	privTmp, err := stageKeyFile(dir, []byte("priv\n"), 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pubTmp, err := stageKeyFile(dir, []byte("pub\n"), 0o644)
+	if err != nil {
+		t.Fatal(err)
+	}
+	privPath := filepath.Join(dir, "k-private.key")
+	pubPath := filepath.Join(dir, "k-public.key")
+	if err := commitStagedKeyFiles(dir, privTmp, pubTmp, privPath, pubPath); err == nil {
+		t.Fatal("want error when rename fails")
 	}
 }
 
