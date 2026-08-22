@@ -1,8 +1,8 @@
 {
   "schema_version": "1.0",
   "environment": {
-    "commit": "6a0b032de06a7c52eab259c487e79c734b6ed060",
-    "generated_at": "2026-08-22T08:20:59Z",
+    "commit": "0f77da06af007530da53ef91db1b78a0ad3c1e08",
+    "generated_at": "2026-08-22T08:27:53Z",
     "go_version": "go1.26.6",
     "os": "linux",
     "arch": "amd64"
