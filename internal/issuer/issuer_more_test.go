@@ -172,7 +172,7 @@ func TestIssueRejectsInvalidLicense(t *testing.T) {
 	}
 }
 
-// Issue honours explicit IssuedAt and preset ids.
+// Issue honors explicit IssuedAt and preset ids.
 func TestIssueHonoursExplicitFields(t *testing.T) {
 	kp, _ := issuer.GenerateKeyPair("k1")
 	signer, _ := issuer.NewSigner("k1", kp.PrivateKey)

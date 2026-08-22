@@ -216,6 +216,55 @@ docker pull soulteary/grantseal:latest
 For full Docker usage (issuer keygen/issue and client verify, with private-key
 safety notes) see [`docs/enUS/README.md`](./docs/enUS/README.md#install--docker).
 
+### Verify a release (supply chain)
+
+Every published release is signed and attested (SBOM + build provenance). The
+release workflow builds artifacts, verifies the exact bytes (archive/image
+allowlist, checksums, SBOM, binary smoke test) and only then publishes; the
+GitHub Release is promoted from a draft after verification passes. Releases are
+tagged with **annotated, signed tags**. You can independently verify what you
+download:
+
+```bash
+# 0. Download the release assets you want to verify (archive, checksums,
+#    the cosign signature/certificate for each, and the SBOM) from the
+#    releases page: https://github.com/soulteary/grantseal/releases
+
+# 1. Verify checksums.txt was signed by this repo's GitHub Actions (keyless).
+cosign verify-blob \
+  --certificate checksums.txt.pem \
+  --signature   checksums.txt.sig \
+  --certificate-identity-regexp '^https://github.com/soulteary/grantseal/\.github/workflows/release\.yml@refs/tags/v.*$' \
+  --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' \
+  checksums.txt
+
+# 2. Verify your archive's SHA-256 is listed in the (now-trusted) checksums.txt.
+sha256sum -c --ignore-missing checksums.txt
+
+# (Alternatively verify the archive's own cosign signature directly.)
+cosign verify-blob \
+  --certificate grantseal_<version>_<os>_<arch>.tar.gz.pem \
+  --signature   grantseal_<version>_<os>_<arch>.tar.gz.sig \
+  --certificate-identity-regexp '^https://github.com/soulteary/grantseal/\.github/workflows/release\.yml@refs/tags/v.*$' \
+  --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' \
+  grantseal_<version>_<os>_<arch>.tar.gz
+
+# 3. Verify the container image signature (keyless).
+cosign verify \
+  --certificate-identity-regexp '^https://github.com/soulteary/grantseal/\.github/workflows/release\.yml@refs/tags/v.*$' \
+  --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' \
+  soulteary/grantseal:<version>
+
+# 4. Verify build provenance (SLSA attestation) for the archive and image.
+gh attestation verify grantseal_<version>_<os>_<arch>.tar.gz --repo soulteary/grantseal
+gh attestation verify oci://soulteary/grantseal:<version> --repo soulteary/grantseal
+
+# 5. Inspect the CycloneDX SBOM published alongside the release.
+#    grantseal_<version>_<os>_<arch>.tar.gz.sbom.cdx.json  (download from the release)
+jq '.metadata.component.name, (.components // [] | length)' \
+  grantseal_<version>_<os>_<arch>.tar.gz.sbom.cdx.json
+```
+
 ### Documentation
 
 - Full English guide: [`docs/enUS/README.md`](./docs/enUS/README.md)
@@ -429,6 +478,43 @@ docker pull soulteary/grantseal:latest
 
 完整 Docker 用法（签发端 keygen/issue 与客户端 verify，含私钥安全提示）见
 [`docs/zhCN/README.md`](./docs/zhCN/README.md#安装与-docker)。
+
+### 校验发布产物（供应链）
+
+每个发布产物都经过签名与证明（SBOM + 构建 provenance）。发布流水线先构建产物，
+再对同一批 bytes 做校验（归档/镜像白名单、校验和、SBOM、二进制冒烟测试），全部通过后
+才发布；GitHub Release 会在校验通过后由草稿（draft）晋升为正式发布。发布使用
+**带注释且签名的 tag**。你可以独立校验下载的内容：
+
+```bash
+# 0. 从发布页下载要校验的产物（归档、checksums、各自的 cosign 签名/证书、SBOM）：
+#    https://github.com/soulteary/grantseal/releases
+
+# 1. 校验 checksums.txt 由本仓库的 GitHub Actions 无密钥（keyless）签名。
+cosign verify-blob \
+  --certificate checksums.txt.pem \
+  --signature   checksums.txt.sig \
+  --certificate-identity-regexp '^https://github.com/soulteary/grantseal/\.github/workflows/release\.yml@refs/tags/v.*$' \
+  --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' \
+  checksums.txt
+
+# 2. 校验归档的 SHA-256 出现在（已可信的）checksums.txt 中。
+sha256sum -c --ignore-missing checksums.txt
+
+# 3. 校验容器镜像签名（keyless）。
+cosign verify \
+  --certificate-identity-regexp '^https://github.com/soulteary/grantseal/\.github/workflows/release\.yml@refs/tags/v.*$' \
+  --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' \
+  soulteary/grantseal:<version>
+
+# 4. 校验归档与镜像的构建 provenance（SLSA 证明）。
+gh attestation verify grantseal_<version>_<os>_<arch>.tar.gz --repo soulteary/grantseal
+gh attestation verify oci://soulteary/grantseal:<version> --repo soulteary/grantseal
+
+# 5. 查看随发布一同发布的 CycloneDX SBOM。
+jq '.metadata.component.name, (.components // [] | length)' \
+  grantseal_<version>_<os>_<arch>.tar.gz.sbom.cdx.json
+```
 
 ### 文档导航
 

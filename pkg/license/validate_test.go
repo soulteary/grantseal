@@ -11,10 +11,10 @@ import (
 func TestDeviceBindingMatch(t *testing.T) {
 	s, pub := testKeyPair(t, "k1")
 	req := baseRequest()
-	req.DeviceBinding = license.DeviceBinding{Mode: license.DeviceModeSingle, DeviceIDs: []string{"sha256:abc"}}
+	req.DeviceBinding = license.DeviceBinding{Mode: license.DeviceModeSingle, DeviceIDs: []string{devFPA}}
 	data := issueBytes(t, s, req)
 	mgr := newTestManager(ringWith(t, "k1", pub))
-	res, err := mgr.Validate(data, license.ValidationContext{DeviceFingerprint: "sha256:abc"})
+	res, err := mgr.Validate(data, license.ValidationContext{DeviceFingerprint: devFPA})
 	if err != nil || !res.Valid() {
 		t.Fatalf("device match should validate: %v", err)
 	}
@@ -24,10 +24,10 @@ func TestDeviceBindingMatch(t *testing.T) {
 func TestDeviceBindingMismatch(t *testing.T) {
 	s, pub := testKeyPair(t, "k1")
 	req := baseRequest()
-	req.DeviceBinding = license.DeviceBinding{Mode: license.DeviceModeSingle, DeviceIDs: []string{"sha256:abc"}}
+	req.DeviceBinding = license.DeviceBinding{Mode: license.DeviceModeSingle, DeviceIDs: []string{devFPA}}
 	data := issueBytes(t, s, req)
 	mgr := newTestManager(ringWith(t, "k1", pub))
-	_, err := mgr.Validate(data, license.ValidationContext{DeviceFingerprint: "sha256:zzz"})
+	_, err := mgr.Validate(data, license.ValidationContext{DeviceFingerprint: devFPOther})
 	if license.CodeOf(err) != license.CodeDeviceMismatch {
 		t.Fatalf("expected LICENSE_DEVICE_MISMATCH, got %s", license.CodeOf(err))
 	}
@@ -37,10 +37,10 @@ func TestDeviceBindingMismatch(t *testing.T) {
 func TestDeviceBindingMulti(t *testing.T) {
 	s, pub := testKeyPair(t, "k1")
 	req := baseRequest()
-	req.DeviceBinding = license.DeviceBinding{Mode: license.DeviceModeMulti, DeviceIDs: []string{"sha256:a", "sha256:b"}}
+	req.DeviceBinding = license.DeviceBinding{Mode: license.DeviceModeMulti, DeviceIDs: []string{devFPA, devFPB}}
 	data := issueBytes(t, s, req)
 	mgr := newTestManager(ringWith(t, "k1", pub))
-	res, err := mgr.Validate(data, license.ValidationContext{DeviceFingerprint: "sha256:b"})
+	res, err := mgr.Validate(data, license.ValidationContext{DeviceFingerprint: devFPB})
 	if err != nil || !res.Valid() {
 		t.Fatalf("multi device should validate: %v", err)
 	}

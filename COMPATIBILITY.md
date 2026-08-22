@@ -9,6 +9,30 @@ version for the module; a bump of any surface below is reflected there.
 
 ---
 
+## Version policy (pre-1.0 vs post-1.0) · 版本政策
+
+- **This project is released as `v1.0.0`** — the point at which its four
+  surfaces are declared stable. From `1.0.0` onward the SemVer rules below are
+  binding: any breaking change to a surface requires a **MAJOR** version bump
+  and a migration note here and in `CHANGELOG.md`.
+- The one-time schema clean break to `schema_version = 2` (and the
+  `grantseal/license/v2\x00` signing domain, revocation v2, etc.) happened
+  **during pre-1.0 development** (`0.1.0` → `0.9.0`), where such breaking
+  protocol changes were permitted without a MAJOR bump. That clean break is
+  **development history**, not a promise that future schema versions may be
+  removed freely; the forward-looking policy in each section below governs
+  everything from `1.0.0` on.
+
+- 本项目以 `v1.0.0` 发布，即宣布下述四个面进入稳定期。自 `1.0.0` 起，下述 SemVer
+  规则具有约束力：任一面的破坏性变更都需要 **MAJOR** 版本号提升，并在本文件与
+  `CHANGELOG.md` 中给出迁移说明。
+- 一次性的 schema 断代（`schema_version = 2`、`grantseal/license/v2\x00` 签名域、
+  撤销 v2 等）发生在 **1.0 之前的开发期**（`0.1.0` → `0.9.0`），彼时允许此类破坏性
+  协议变更而无需 MAJOR 提升。该断代属于开发历史，并非"未来 schema 版本可随意移除"
+  的承诺；自 `1.0.0` 起以下各节的前瞻性政策为准。
+
+---
+
 ## 1. Wire / on-disk schema · 数据格式
 
 - Field: `schema_version` inside the signed payload; also the revocation-list
@@ -16,10 +40,16 @@ version for the module; a bump of any surface below is reflected there.
 - **Current:** license payload `schema_version = 2` (signed under the
   domain-separation prefix `grantseal/license/v2\x00`); revocation list **v2**
   with domain-separation prefix `grantseal/revocation/v2\x00`.
-- Rules · 规则:
-  - A **new** schema version is introduced additively; the verifier accepts a
+- Rules (forward-looking, in force from `1.0.0`) · 规则（自 `1.0.0` 起生效）:
+  - **Adding** a new schema version is done additively: the verifier accepts a
     bounded, explicit allowlist of versions and **rejects** everything else
-    (fail-closed, never silently downgraded).
+    (fail-closed, never silently downgraded). An additive addition that keeps
+    the existing accepted versions working is a **minor** change.
+  - **Removing** acceptance of a currently-accepted schema version — or
+    otherwise making a previously-valid artifact fail — is a **breaking change
+    (MAJOR bump)** and must ship a migration note here and in `CHANGELOG.md`.
+    (The historical `schema_version = 1` → `2` clean break predates `1.0.0`;
+    see the *Version policy* section above.)
   - Legacy v1 revocation lists are rejected **by default** and only accepted
     when the caller opts in with `AllowLegacyV1Revocation()`.
   - Legacy **v0.1.0 license payloads** (`schema_version = 1`) are **no longer
@@ -35,8 +65,40 @@ version for the module; a bump of any surface below is reflected there.
     schema field, not a genuine v0.1.0 artifact.) Either way the outcome is
     fail-closed; licenses must be re-issued as v2. See `CHANGELOG.md` for the
     migration note.
-  - Removing acceptance of an old schema version is a **breaking change**
-    (major bump) and must ship a migration note here and in `CHANGELOG.md`.
+
+### 1.1 Device-binding fingerprint scheme (Scheme A) · 设备指纹格式
+
+- Surface: the string values stored in a signed license's
+  `device_binding.device_ids` (and the `DeviceFingerprint` a caller supplies at
+  validation time).
+- **Contract:** every `device_id` is one of two explicit, strictly-parseable
+  forms:
+  - a **versioned fingerprint** `fp:v<N>:<algo>:<digest>`, where `<N>` is a
+    known scheme version (currently `v1` or `v2`), `<algo>` is `sha256` or
+    `hmac-sha256`, and `<digest>` is a 64-char lowercase-hex SHA-256/HMAC-SHA256
+    digest; or
+  - an **explicit opaque identifier** `opaque:<namespace>:<value>` for
+    business-custom IDs that are not hashed fingerprints.
+- Values are produced by `pkg/fingerprint` (`Compute*`/`ComputeVersion`/
+  `ComputeHMACVersion`) and parsed/validated by `fingerprint.Parse`. The license
+  layer enforces this format at static-validation time: a payload whose
+  `device_ids` contain a legacy bare value (e.g. `sha256:<hex>` without a
+  version, `dev-1`, or any arbitrary string) is rejected fail-closed with
+  `LICENSE_MALFORMED`.
+- Rules · 规则:
+  - Parsing is **fail-closed**: unknown versions (`ErrUnknownVersion`), unknown
+    algorithms (`ErrUnknownAlgorithm`), empty/malformed digests, non-hex, or
+    wrong-length digests are all rejected. Nothing outside the two forms above
+    is accepted.
+  - The `fp:v<N>:` prefix records **which** scheme produced a value; it is an
+    identification/migration aid and does **not** by itself keep an old binding
+    matchable as the default scheme evolves. Matching is exact-string equality,
+    so re-matching an already-issued binding requires recomputing that specific
+    version via `ComputeVersion`/`ComputeHMACVersion`.
+  - Introducing a new fingerprint scheme version is additive (a new value in the
+    known-version allowlist). Removing acceptance of an existing version, or
+    changing what `fingerprint.Parse` accepts, is a **breaking change**.
+
 
 ## 2. Stable error codes · 稳定错误码
 

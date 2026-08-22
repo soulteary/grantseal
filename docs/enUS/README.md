@@ -194,6 +194,36 @@ docker run --rm -v "$PWD:/work" soulteary/grantseal:latest \
   verify -license /work/customer.lic -pubkey /work/_keys/k1-public.key -product acme-app
 ```
 
+## Verify a release (supply chain)
+
+Releases are signed and attested. The release pipeline builds artifacts,
+verifies the exact bytes (archive/image allowlist, checksums, SBOM, binary smoke
+test), then publishes — the GitHub Release is promoted from a draft only after
+verification passes, and tags are annotated/signed. Verify what you download:
+
+```bash
+# Keyless signature over checksums.txt (then check your archive's SHA-256).
+cosign verify-blob \
+  --certificate checksums.txt.pem --signature checksums.txt.sig \
+  --certificate-identity-regexp '^https://github.com/soulteary/grantseal/\.github/workflows/release\.yml@refs/tags/v.*$' \
+  --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' \
+  checksums.txt
+sha256sum -c --ignore-missing checksums.txt
+
+# Keyless image signature.
+cosign verify \
+  --certificate-identity-regexp '^https://github.com/soulteary/grantseal/\.github/workflows/release\.yml@refs/tags/v.*$' \
+  --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' \
+  soulteary/grantseal:<version>
+
+# SLSA build provenance for the archive and the image.
+gh attestation verify grantseal_<version>_<os>_<arch>.tar.gz --repo soulteary/grantseal
+gh attestation verify oci://soulteary/grantseal:<version> --repo soulteary/grantseal
+
+# CycloneDX SBOM (published as a release asset).
+jq '.metadata.component.name' grantseal_<version>_<os>_<arch>.tar.gz.sbom.cdx.json
+```
+
 ## Client integration (library)
 
 ```go

@@ -50,7 +50,9 @@ func cmdInspect(args []string, stdout, stderr io.Writer) error {
 	if err != nil {
 		return err
 	}
-	fprintln(stdout, string(out))
-	fprintln(stderr, "note: signature verified; policy checks (time/device/product) NOT applied")
+	if err := writeLine(stdout, string(out)); err != nil {
+		return err
+	}
+	fprintf(stderr, "note: signature verified; policy checks (time/device/product) NOT applied\n")
 	return nil
 }

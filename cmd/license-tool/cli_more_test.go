@@ -220,7 +220,7 @@ func TestCmdIssueOverridesAndForce(t *testing.T) {
 		Limits:      map[string]int64{"seats": 5},
 		DeviceBinding: deviceBindingConfig{
 			Mode:      string(license.DeviceModeMulti),
-			DeviceIDs: []string{"dev-1"},
+			DeviceIDs: []string{"fp:v2:sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
 		},
 		VersionConstraint: versionConstraintCfg{MinVersion: "1.0.0", MaxVersion: "2.0.0"},
 		Metadata:          map[string]string{"tier": "gold"},

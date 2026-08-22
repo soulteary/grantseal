@@ -100,8 +100,7 @@ func cmdRevokeList(args []string, stdout, stderr io.Writer) error {
 		return err
 	}
 	if *f.out == "" {
-		fprintln(stdout, string(data))
-		return nil
+		return writeLine(stdout, string(data))
 	}
 	if err := writeFileNoClobber(*f.out, data, 0o644, *f.force); err != nil {
 		return err

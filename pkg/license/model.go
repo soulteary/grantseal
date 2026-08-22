@@ -3,6 +3,8 @@ package license
 import (
 	"fmt"
 	"time"
+
+	"github.com/soulteary/grantseal/pkg/fingerprint"
 )
 
 // LicenseSchemaVersion is the only license payload schema version this build
@@ -243,6 +245,9 @@ func (p *Payload) validateStatic() error {
 	if err := p.validateCaps(); err != nil {
 		return err
 	}
+	if err := p.validateDeviceIDFormat(); err != nil {
+		return err
+	}
 	if err := p.validateLimitsRange(); err != nil {
 		return err
 	}
@@ -323,6 +328,29 @@ func (p *Payload) validateCaps() error {
 		}
 		if len(v) > MaxMetadataValLen {
 			return newError(CodeInvalidLimits, fmt.Sprintf("metadata value for %q exceeds maximum length", k), nil)
+		}
+	}
+	return nil
+}
+
+// validateDeviceIDFormat enforces the Scheme A wire format on every persisted
+// device_id. For device-bound modes (single/multi) each value must be a
+// strictly-parseable versioned fingerprint ("fp:v<N>:<algo>:<digest>") or an
+// explicit opaque business identifier ("opaque:<ns>:<value>"). It reuses
+// fingerprint.Parse as the single source of truth for the format: pkg/fingerprint
+// is stdlib-only and does not import pkg/license, so the dependency introduces
+// no import cycle. Legacy bare values ("sha256:abc", "dev-1", arbitrary strings)
+// are rejected fail-closed with CodeMalformed so a stale or ambiguous binding
+// can never be silently matched. This runs after validateCaps so an over-large
+// device_id set still reports CodeInvalidLimits (cardinality) first.
+func (p *Payload) validateDeviceIDFormat() error {
+	switch p.DeviceBinding.Mode {
+	case DeviceModeSingle, DeviceModeMulti:
+		for _, id := range p.DeviceBinding.DeviceIDs {
+			if _, err := fingerprint.Parse(id); err != nil {
+				return newError(CodeMalformed,
+					"device_id is not a valid fingerprint scheme value (want fp:v<N>:<algo>:<digest> or opaque:<ns>:<value>)", err)
+			}
 		}
 	}
 	return nil

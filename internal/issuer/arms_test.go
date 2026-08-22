@@ -323,7 +323,7 @@ func TestWriteKeyFilesStagePublicFailureLeavesTargetsUntouched(t *testing.T) {
 }
 
 // TestWriteKeyFilesPermissions asserts the committed private/public modes on
-// platforms that honour Unix permission bits.
+// platforms that honor Unix permission bits.
 func TestWriteKeyFilesPermissions(t *testing.T) {
 	dir := t.TempDir()
 	kp, _ := GenerateKeyPair("k1")

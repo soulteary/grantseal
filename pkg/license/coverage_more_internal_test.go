@@ -216,23 +216,41 @@ func TestValidateEnumsArms(t *testing.T) {
 	})
 	t.Run("device_mode_none_with_ids", func(t *testing.T) {
 		p := basePayload()
-		p.DeviceBinding = DeviceBinding{Mode: DeviceModeNone, DeviceIDs: []string{"dev-1"}}
+		p.DeviceBinding = DeviceBinding{Mode: DeviceModeNone, DeviceIDs: []string{fpDeviceA}}
 		if err := p.validateStatic(); CodeOf(err) != CodeMalformed {
 			t.Fatalf("want CodeMalformed for none-with-ids, got %s", CodeOf(err))
 		}
 	})
 	t.Run("device_mode_single_multiple_ids", func(t *testing.T) {
 		p := basePayload()
-		p.DeviceBinding = DeviceBinding{Mode: DeviceModeSingle, DeviceIDs: []string{"dev-1", "dev-2"}}
+		p.DeviceBinding = DeviceBinding{Mode: DeviceModeSingle, DeviceIDs: []string{fpDeviceA, fpDeviceOther}}
 		if err := p.validateStatic(); CodeOf(err) != CodeMalformed {
 			t.Fatalf("want CodeMalformed for single-with-two-ids, got %s", CodeOf(err))
 		}
 	})
 	t.Run("device_mode_single_exactly_one_ok", func(t *testing.T) {
 		p := basePayload()
-		p.DeviceBinding = DeviceBinding{Mode: DeviceModeSingle, DeviceIDs: []string{"dev-1"}}
+		p.DeviceBinding = DeviceBinding{Mode: DeviceModeSingle, DeviceIDs: []string{fpDeviceA}}
 		if err := p.validateStatic(); err != nil {
 			t.Fatalf("single with exactly one id should be valid, got %v", err)
+		}
+	})
+	t.Run("device_mode_single_bad_format", func(t *testing.T) {
+		// Scheme A: a legacy bare "sha256:abc" device_id is rejected as malformed
+		// even though the cardinality (single => exactly one) is satisfied.
+		p := basePayload()
+		p.DeviceBinding = DeviceBinding{Mode: DeviceModeSingle, DeviceIDs: []string{"sha256:abc"}}
+		if err := p.validateStatic(); CodeOf(err) != CodeMalformed {
+			t.Fatalf("want CodeMalformed for bare-sha256 device_id, got %s", CodeOf(err))
+		}
+	})
+	t.Run("device_mode_multi_opaque_ok", func(t *testing.T) {
+		// An explicit opaque business identifier is accepted for a device-bound
+		// mode; only unstructured/legacy values are rejected.
+		p := basePayload()
+		p.DeviceBinding = DeviceBinding{Mode: DeviceModeMulti, DeviceIDs: []string{fpDeviceA, "opaque:acme:seat-42"}}
+		if err := p.validateStatic(); err != nil {
+			t.Fatalf("multi with valid fp + opaque id should be valid, got %v", err)
 		}
 	})
 }

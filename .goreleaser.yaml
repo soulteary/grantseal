@@ -60,6 +60,78 @@ checksum:
   name_template: "checksums.txt"
   algorithm: sha256
 
+# Build/verify/publish atomicity (P1-3): create the GitHub Release as a DRAFT so
+# the tag, release notes and uploaded assets stay INVISIBLE to consumers until
+# the release workflow has verified the built bytes and explicitly promotes the
+# draft to published (`gh release edit --draft=false`). If any verification step
+# fails the draft is never promoted (and can be discarded), so users never see a
+# half-verified release. Image floating tags are only pushed in the publish
+# phase, which runs strictly after verification.
+release:
+  draft: true
+
+# Software Bill of Materials (P1-6). goreleaser invokes syft to emit a CycloneDX
+# SBOM per built archive; the resulting *.sbom.json files are attached to the
+# GitHub Release as assets. syft must be on PATH wherever goreleaser runs this
+# stanza (both the release workflow and the ci.yml snapshot job install it via
+# anchore/sbom-action's pinned installer before running goreleaser). goreleaser
+# treats syft as a HARD dependency and FAILS the run (it does NOT skip) when
+# syft is missing, even under `--snapshot`, so the installer step is mandatory.
+sboms:
+  - id: archive
+    artifacts: archive
+    documents:
+      - "{{ .ArtifactName }}.sbom.cdx.json"
+    cmd: syft
+    args:
+      - "$artifact"
+      - "--output"
+      - "cyclonedx-json=$document"
+
+# Keyless signing (P1-6): sign the checksums file AND every archive with cosign
+# using GitHub OIDC (no long-lived keys). Signatures + certificates are attached
+# to the release. The release workflow installs cosign (pinned) and grants
+# `id-token: write` ONLY to the publishing job. COSIGN_YES avoids the
+# interactive Fulcio/Rekor consent prompt in CI.
+signs:
+  - id: checksums
+    cmd: cosign
+    signature: "${artifact}.sig"
+    certificate: "${artifact}.pem"
+    args:
+      - sign-blob
+      - "--output-signature=${signature}"
+      - "--output-certificate=${certificate}"
+      - "${artifact}"
+      - "--yes"
+    artifacts: checksum
+    output: true
+  - id: archives
+    cmd: cosign
+    signature: "${artifact}.sig"
+    certificate: "${artifact}.pem"
+    args:
+      - sign-blob
+      - "--output-signature=${signature}"
+      - "--output-certificate=${certificate}"
+      - "${artifact}"
+      - "--yes"
+    artifacts: archive
+    output: true
+
+# Keyless image signing (P1-6): cosign-sign every pushed image tag (per-arch
+# tags and the multi-arch manifest) with GitHub OIDC. Runs only on real
+# releases (not snapshots).
+docker_signs:
+  - id: images
+    cmd: cosign
+    args:
+      - sign
+      - "--yes"
+      - "${artifact}@${digest}"
+    artifacts: all
+    output: true
+
 changelog:
   sort: asc
   use: github

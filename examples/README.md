@@ -50,10 +50,11 @@ explicitly.
 - **06** `scenarios/06-trial.json` — trial license;
   `-product acme-app -version 1.4.0` → `valid` / `LICENSE_OK`.
 - **07a** `scenarios/07-device-single.json` — single-device binding, fingerprint
-  matches; `-device fp:v2:sha256:demo-device-fingerprint-0007` → `valid` /
+  matches; `-device fp:v2:sha256:0707070707070707070707070707070707070707070707070707070707070707` → `valid` /
   `LICENSE_OK`.
 - **07b** `scenarios/07-device-single.json` — single-device binding, fingerprint
-  mismatch; `-device sha256:some-other-device` → `invalid` /
+  mismatch; a valid-but-different versioned fingerprint
+  `-device fp:v2:sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff` → `invalid` /
   `LICENSE_DEVICE_MISMATCH`.
 - **08a** `scenarios/08-version-constraint.json` — version in range;
   `-version 1.4.0` → `valid` / `LICENSE_OK`.
@@ -172,8 +173,8 @@ bash examples/run-scenarios.sh
 | 04 | `scenarios/04-not-yet-valid.json` | `not_before` 在未来 | `-product acme-app -version 1.4.0` | `invalid` | `LICENSE_NOT_YET_VALID` |
 | 05 | `scenarios/05-lifetime.json` | 永久授权(无到期) | `-product acme-app -version 1.4.0` | `valid` | `LICENSE_OK` |
 | 06 | `scenarios/06-trial.json` | 试用授权 | `-product acme-app -version 1.4.0` | `valid` | `LICENSE_OK` |
-| 07a | `scenarios/07-device-single.json` | 单设备绑定 · 指纹匹配 | `-device fp:v2:sha256:demo-device-fingerprint-0007` | `valid` | `LICENSE_OK` |
-| 07b | `scenarios/07-device-single.json` | 单设备绑定 · 指纹不匹配 | `-device sha256:some-other-device` | `invalid` | `LICENSE_DEVICE_MISMATCH` |
+| 07a | `scenarios/07-device-single.json` | 单设备绑定 · 指纹匹配 | `-device fp:v2:sha256:0707070707070707070707070707070707070707070707070707070707070707` | `valid` | `LICENSE_OK` |
+| 07b | `scenarios/07-device-single.json` | 单设备绑定 · 指纹不匹配（有效但不同的版本化指纹） | `-device fp:v2:sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff` | `invalid` | `LICENSE_DEVICE_MISMATCH` |
 | 08a | `scenarios/08-version-constraint.json` | 版本范围内 | `-version 1.4.0` | `valid` | `LICENSE_OK` |
 | 08b | `scenarios/08-version-constraint.json` | 版本超范围 | `-version 3.0.0` | `invalid` | `LICENSE_VERSION_UNSUPPORTED` |
 | 09 | `scenarios/09-revoked.json` | 已吊销 | `-revocation out/revocation.lic` | `invalid` | `LICENSE_REVOKED` |

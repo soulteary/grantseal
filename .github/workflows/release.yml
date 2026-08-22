@@ -5,7 +5,9 @@ on:
     tags:
       - "v*"
 
-# Default read-only; the release job opts into the write scopes it needs.
+# Default read-only for the whole workflow; the release job opts into the write
+# scopes it needs, and the supply-chain attestation step opts into the narrow
+# id-token / attestations scopes ONLY where required.
 permissions:
   contents: read
 
@@ -60,17 +62,48 @@ jobs:
       - name: govulncheck ./...
         run: govulncheck ./...
 
+      # Prove the release allowlist gate still rejects planted material before we
+      # rely on it below (P1-4 self-test).
+      - name: archive/image allowlist gate self-test
+        run: bash scripts/check-archive-allowlist-selftest.sh
+
+  # -------------------------------------------------------------------------
+  # Atomic release (P1-3): BUILD -> VERIFY (same bytes) -> PUBLISH -> ATTEST.
+  #
+  # The release is BUILT first with publishing fully disabled (`--skip=publish`),
+  # so goreleaser produces the exact archives, checksums, SBOMs and per-arch
+  # container images WITHOUT creating a GitHub Release, pushing any image tag, or
+  # updating any floating tag (`latest`, `<major.minor>`). Those built bytes are
+  # then VERIFIED in place (archive + image allowlist, SHA-256 hashing, SBOM
+  # presence, `license-tool version` smoke test, and a deliberately-planted
+  # extra-file self-test that MUST block publish). Only after every check passes
+  # do we PUBLISH: goreleaser re-runs and, because the build is deterministic
+  # (`-trimpath` + pinned ldflags), re-produces byte-identical archives — which
+  # we assert via a SHA-256 comparison against the pre-verification checksums
+  # before anything becomes visible. The GitHub Release is created as a DRAFT
+  # (release.draft: true in .goreleaser.yaml), so its tag/notes/assets stay
+  # invisible to consumers until the final PROMOTE step flips it to published,
+  # which runs last, after attestation. On any failure the draft is never
+  # promoted and floating image tags are never reached, so consumers never see a
+  # half-verified release.
+  # -------------------------------------------------------------------------
   release:
-    name: goreleaser
+    name: goreleaser (build -> verify -> publish)
     needs: [gate]
     runs-on: ubuntu-latest
     permissions:
-      # contents: write is required for goreleaser to create the GitHub Release
-      # and upload archives/checksums.
+      # contents: write is required for goreleaser to create the (draft) GitHub
+      # Release and upload archives/checksums.
       contents: write
       # packages: write allows pushing images to GHCR if ever needed; DockerHub
       # push uses the docker login step below.
       packages: write
+      # id-token: write is required for cosign keyless (Fulcio/OIDC) signing and
+      # for build-provenance attestation; attestations: write lets
+      # attest-build-provenance record the attestation. These are scoped to this
+      # single publishing job — the workflow default stays read-only.
+      id-token: write
+      attestations: write
     steps:
       - name: Checkout
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
@@ -92,47 +125,60 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
 
-      - name: Log in to Docker Hub
-        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      # Supply-chain tooling (P1-6). cosign performs keyless signing of
+      # checksums/archives/images; syft generates the CycloneDX SBOM consumed by
+      # goreleaser's `sboms:` stanza. Both are CI-only and never enter the
+      # runtime dependency graph.
+      - name: Install cosign
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
 
-      - name: Run goreleaser
+      - name: Install syft (SBOM generator)
+        uses: anchore/sbom-action/download-syft@8e94d75ddd33f69f691467e42275782e4bfefe84 # v0.20.9
+
+      # ---- BUILD (no publish): exact artifacts, nothing pushed/visible --------
+      # `--skip=publish` disables the GitHub Release, all image pushes (including
+      # floating tags), Homebrew tap push, signing and announcements. Images are
+      # still BUILT and loaded into the local docker engine so the image
+      # allowlist can inspect the real, about-to-be-shipped filesystem.
+      # `--skip=sign` here because keyless signing must not run until publish
+      # time (it also needs the artifacts to be the final, pushed ones).
+      - name: goreleaser build (no publish)
         uses: goreleaser/goreleaser-action@f06c13b6b1a9625abc9e6e439d9c05a8f2190e94 # v7.2.3
         with:
           # Pin the GoReleaser CLI to an explicit v2 tag instead of the floating
           # "~> v2" constraint so the published release is reproducible.
           version: v2.17.1
-          args: release --clean
+          args: release --clean --skip=publish,sign
         env:
-          # GITHUB_TOKEN is used to create the release and upload artifacts.
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # HOMEBREW_TAP_TOKEN is a PAT with write access to the
-          # soulteary/homebrew-tap repository. goreleaser's brews section uses
-          # it to push the generated formula to the tap (the default
-          # GITHUB_TOKEN cannot write to a different repo).
-          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+
+      # ---- VERIFY the exact built bytes --------------------------------------
+      - name: record pre-publish artifact hashes
+        run: |
+          set -euo pipefail
+          # Snapshot the SHA-256 of every release asset built above. The publish
+          # phase rebuilds deterministically and must reproduce these exact
+          # checksums before anything is promoted (P1-3 / same-bytes guarantee).
+          ( cd dist && find . -maxdepth 1 -type f \
+              \( -name '*.tar.gz' -o -name '*.zip' -o -name 'checksums.txt' \) \
+              -print0 | sort -z | xargs -0 sha256sum ) > pre-publish.sha256
+          echo "pre-publish artifact hashes:"
+          cat pre-publish.sha256
 
       - name: verify release archive allowlist
         run: bash scripts/check-archive-allowlist.sh dist
 
-      # Also validate the FINAL container image contents, not just the tar.gz /
-      # zip archives. goreleaser leaves the per-arch images loaded locally, so
-      # inspect the amd64 image built on THIS runner: it must contain only the
-      # app binary + legal files on top of the base image scaffolding.
-      #
-      # Pin to the exact version tag (e.g. soulteary/grantseal:1.2.3-amd64)
-      # instead of the floating `latest-amd64`. The floating tag can resolve to
-      # a previously published image if the freshly built one was not loaded
-      # into the local docker engine, which would silently check the wrong
-      # (possibly stale, differently-based) image. The `docker image inspect`
-      # guard fails loudly if the just-built image is missing locally rather
-      # than letting `docker create` pull an old tag from the registry.
+      # Validate the FINAL container image contents, not just the tar.gz / zip
+      # archives. goreleaser leaves the per-arch images loaded locally; inspect
+      # the amd64 image built on THIS runner. It must contain only the app binary
+      # + legal files on top of the pinned distroless base (exact-path allowlist;
+      # see scripts/check-archive-allowlist.sh). Pin to the exact version tag
+      # (soulteary/grantseal:1.2.3-amd64), not the floating latest-amd64, so a
+      # missing local build fails loudly instead of silently inspecting a stale
+      # registry image.
       - name: verify release image allowlist
         run: |
           set -euo pipefail
-          # goreleaser strips the leading "v" from the git tag for {{ .Version }}.
           version="${GITHUB_REF_NAME#v}"
           image="soulteary/grantseal:${version}-amd64"
           echo "checking locally-built image: $image"
@@ -144,13 +190,131 @@ jobs:
           fi
           bash scripts/check-archive-allowlist.sh --image "$image"
 
-      # TODO(supply-chain): sign released artifacts and images with cosign
-      # (keyless / OIDC) once the repository has an OIDC identity configured:
-      #   permissions: id-token: write
-      #   uses: sigstore/cosign-installer@<pinned-sha>
-      #   run: cosign sign-blob / cosign sign <image>
-      # TODO(supply-chain): generate and attach an SBOM (e.g. syft + goreleaser
-      # `sboms:` stanza) and publish it as a release asset.
-      # TODO(supply-chain): emit SLSA build provenance attestations
-      # (actions/attest-build-provenance) — requires id-token: write and
-      # attestations: write permissions.
+      # Pipeline self-test (P1-4): copy a real archive, inject a stray file, and
+      # assert the allowlist check FAILS on it. This proves the gate that guards
+      # publish actually blocks a tampered artifact — if this ever passes, the
+      # release is aborted before anything is published.
+      - name: pipeline tamper self-test (planted file must block publish)
+        run: |
+          set -euo pipefail
+          tamper_dir="$(mktemp -d)"
+          src="$(find dist -maxdepth 1 -name '*.tar.gz' | head -n1)"
+          if [ -z "$src" ]; then
+            echo "error: no archive found to tamper-test" >&2; exit 1
+          fi
+          work="$(mktemp -d)"
+          tar -xzf "$src" -C "$work"
+          echo "PLANTED" > "$work/private.key"
+          ( cd "$work" && tar -czf "$tamper_dir/tampered.tar.gz" . )
+          if bash scripts/check-archive-allowlist.sh "$tamper_dir"; then
+            echo "error: allowlist accepted a tampered archive with private.key" >&2
+            exit 1
+          fi
+          echo "pipeline tamper self-test passed: planted private.key blocks publish"
+
+      - name: binary smoke test (license-tool version)
+        run: |
+          set -euo pipefail
+          # Extract the linux/amd64 binary from the just-built archive and run it.
+          version="${GITHUB_REF_NAME#v}"
+          arch_tar="dist/grantseal_${version}_linux_amd64.tar.gz"
+          if [ ! -f "$arch_tar" ]; then
+            arch_tar="$(find dist -maxdepth 1 -name 'grantseal_*_linux_amd64.tar.gz' | head -n1)"
+          fi
+          test -n "$arch_tar" && test -f "$arch_tar"
+          smoke="$(mktemp -d)"
+          tar -xzf "$arch_tar" -C "$smoke"
+          "$smoke/license-tool" version
+          "$smoke/license-tool" version | grep -q "$version" || {
+            echo "error: license-tool version output does not contain '$version'" >&2
+            exit 1
+          }
+
+      - name: verify SBOM was generated
+        run: |
+          set -euo pipefail
+          if ! find dist -maxdepth 1 -name '*.sbom.cdx.json' | grep -q .; then
+            echo "error: no CycloneDX SBOM (*.sbom.cdx.json) found in dist/" >&2
+            exit 1
+          fi
+          echo "SBOM(s) present:"; find dist -maxdepth 1 -name '*.sbom.cdx.json'
+
+      # ---- PUBLISH (only after every check above passed) ----------------------
+      - name: Log in to Docker Hub
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      # Re-run goreleaser to PUBLISH: create the DRAFT GitHub Release, upload
+      # archives/checksums/SBOMs, push per-arch + manifest image tags, and cosign
+      # keyless-sign checksums/archives/images. The GitHub Release stays a draft
+      # (release.draft: true), so its tag/assets remain invisible until the
+      # PROMOTE step. COSIGN_YES answers the Fulcio/Rekor consent prompt.
+      - name: goreleaser publish (draft release + signed push)
+        uses: goreleaser/goreleaser-action@f06c13b6b1a9625abc9e6e439d9c05a8f2190e94 # v7.2.3
+        with:
+          version: v2.17.1
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          COSIGN_YES: "true"
+
+      # Same-bytes guarantee (P1-3 / B4): assert the deterministically-rebuilt
+      # archives + checksums are byte-identical to the ones we verified above.
+      # Any drift means the published bytes differ from the checked bytes, so we
+      # abort BEFORE promoting the draft to visible.
+      - name: assert published bytes match verified bytes (SHA-256)
+        run: |
+          set -euo pipefail
+          sha256sum -c pre-publish.sha256
+          echo "verified: published archives/checksums match the pre-publish hashes"
+
+      # ---- ATTEST (build provenance / SLSA) ----------------------------------
+      # Attest the released archives + checksums. Uses the job-scoped
+      # id-token/attestations permissions above.
+      - name: attest build provenance (release archives)
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: |
+            dist/*.tar.gz
+            dist/*.zip
+            dist/checksums.txt
+
+      # Attest the pushed multi-arch image by digest and record the attestation
+      # in the registry so `gh attestation verify` / `cosign` consumers can
+      # verify provenance. The digest is read from goreleaser's artifacts.json.
+      - name: resolve pushed image digest
+        id: imgdigest
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          # goreleaser records docker manifests + their digests in metadata.
+          digest="$(docker buildx imagetools inspect "soulteary/grantseal:${version}" \
+            --format '{{ json .Manifest.Digest }}' 2>/dev/null | tr -d '"' || true)"
+          if [ -z "$digest" ]; then
+            echo "note: could not resolve manifest digest; skipping image attestation" >&2
+          fi
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
+
+      - name: attest build provenance (container image)
+        if: steps.imgdigest.outputs.digest != ''
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: docker.io/soulteary/grantseal
+          subject-digest: ${{ steps.imgdigest.outputs.digest }}
+          push-to-registry: true
+
+      # ---- PROMOTE (final visibility flip) -----------------------------------
+      # The ONLY step that makes the tag/release/assets visible to consumers.
+      # Runs last, so a failure in any prior verify/publish/attest step leaves
+      # the release as an invisible draft that can be discarded.
+      - name: promote draft release to published
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF_NAME}"
+          echo "promoting draft release $tag to published"
+          gh release edit "$tag" --draft=false

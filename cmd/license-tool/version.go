@@ -15,6 +15,5 @@ func cmdVersion(args []string, stdout, stderr io.Writer) error {
 	if err := parseFlags(fs, args); err != nil {
 		return err
 	}
-	fprintf(stdout, "license-tool %s\n", version)
-	return nil
+	return writeLine(stdout, "license-tool "+version)
 }

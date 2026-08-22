@@ -171,6 +171,35 @@ docker run --rm -v "$PWD:/work" soulteary/grantseal:latest \
   verify -license /work/customer.lic -pubkey /work/_keys/k1-public.key -product acme-app
 ```
 
+## 校验发布产物（供应链）
+
+发布产物均经过签名与证明。发布流水线先构建产物，再对同一批 bytes 做校验（归档/镜像
+白名单、校验和、SBOM、二进制冒烟测试），随后才发布——GitHub Release 在校验通过后由
+草稿晋升为正式发布，tag 为带注释且签名的 tag。可独立校验下载内容：
+
+```bash
+# 对 checksums.txt 的 keyless 签名（随后核对归档 SHA-256）。
+cosign verify-blob \
+  --certificate checksums.txt.pem --signature checksums.txt.sig \
+  --certificate-identity-regexp '^https://github.com/soulteary/grantseal/\.github/workflows/release\.yml@refs/tags/v.*$' \
+  --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' \
+  checksums.txt
+sha256sum -c --ignore-missing checksums.txt
+
+# 镜像 keyless 签名。
+cosign verify \
+  --certificate-identity-regexp '^https://github.com/soulteary/grantseal/\.github/workflows/release\.yml@refs/tags/v.*$' \
+  --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' \
+  soulteary/grantseal:<version>
+
+# 归档与镜像的 SLSA 构建 provenance。
+gh attestation verify grantseal_<version>_<os>_<arch>.tar.gz --repo soulteary/grantseal
+gh attestation verify oci://soulteary/grantseal:<version> --repo soulteary/grantseal
+
+# CycloneDX SBOM（作为发布资产）。
+jq '.metadata.component.name' grantseal_<version>_<os>_<arch>.tar.gz.sbom.cdx.json
+```
+
 ## 客户端集成（库）
 
 ```go

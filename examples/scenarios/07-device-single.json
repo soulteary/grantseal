@@ -11,7 +11,7 @@
   "grace_period_days": 0,
   "device_binding": {
     "mode": "single",
-    "device_ids": ["fp:v2:sha256:demo-device-fingerprint-0007"]
+    "device_ids": ["fp:v2:sha256:0707070707070707070707070707070707070707070707070707070707070707"]
   },
   "metadata": {
     "scenario": "device-single"

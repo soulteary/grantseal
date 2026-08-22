@@ -173,6 +173,15 @@ func TestCompareVersionsStrict(t *testing.T) {
 // #4 Entry-count and length caps enforced by validateStatic.
 
 // basePayload returns a minimally valid subscription payload for cap tests.
+// Valid device-binding fingerprint values for internal (package license) tests.
+// Scheme A rejects bare "sha256:abc" style IDs, so device-bound payloads use
+// these strictly-parseable v2 fingerprints. Each 64-hex body is distinct so
+// mismatch cases still mismatch.
+const (
+	fpDeviceA     = "fp:v2:sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	fpDeviceOther = "fp:v2:sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+)
+
 func basePayload() *Payload {
 	now := time.Now().UTC()
 	exp := now.Add(365 * 24 * time.Hour)

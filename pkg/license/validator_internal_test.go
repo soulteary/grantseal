@@ -54,7 +54,7 @@ func TestValidateGatePriority(t *testing.T) {
 			p: newPayload(func(p *Payload) {
 				p.NotBefore = &future
 				p.VersionConstraint = VersionConstraint{MinVersion: "9.0.0"}
-				p.DeviceBinding = DeviceBinding{Mode: DeviceModeSingle, DeviceIDs: []string{"sha256:abc"}}
+				p.DeviceBinding = DeviceBinding{Mode: DeviceModeSingle, DeviceIDs: []string{fpDeviceA}}
 			}),
 			ctx: ValidationContext{
 				Revocation:     revokedAll{},
@@ -69,7 +69,7 @@ func TestValidateGatePriority(t *testing.T) {
 			p: newPayload(func(p *Payload) {
 				p.NotBefore = &future
 				p.VersionConstraint = VersionConstraint{MinVersion: "9.0.0"}
-				p.DeviceBinding = DeviceBinding{Mode: DeviceModeSingle, DeviceIDs: []string{"sha256:abc"}}
+				p.DeviceBinding = DeviceBinding{Mode: DeviceModeSingle, DeviceIDs: []string{fpDeviceA}}
 			}),
 			ctx:  ValidationContext{ProductID: "other", ProductVersion: "1.0.0"},
 			want: CodeProductMismatch,
@@ -80,7 +80,7 @@ func TestValidateGatePriority(t *testing.T) {
 			p: newPayload(func(p *Payload) {
 				p.NotBefore = &future
 				p.VersionConstraint = VersionConstraint{MinVersion: "9.0.0"}
-				p.DeviceBinding = DeviceBinding{Mode: DeviceModeSingle, DeviceIDs: []string{"sha256:abc"}}
+				p.DeviceBinding = DeviceBinding{Mode: DeviceModeSingle, DeviceIDs: []string{fpDeviceA}}
 			}),
 			ctx:  ValidationContext{ProductVersion: "1.0.0"},
 			want: CodeNotYetValid,
@@ -90,7 +90,7 @@ func TestValidateGatePriority(t *testing.T) {
 			name: "version beats device",
 			p: newPayload(func(p *Payload) {
 				p.VersionConstraint = VersionConstraint{MinVersion: "9.0.0"}
-				p.DeviceBinding = DeviceBinding{Mode: DeviceModeSingle, DeviceIDs: []string{"sha256:abc"}}
+				p.DeviceBinding = DeviceBinding{Mode: DeviceModeSingle, DeviceIDs: []string{fpDeviceA}}
 			}),
 			ctx:  ValidationContext{ProductVersion: "1.0.0"},
 			want: CodeVersionUnsupported,
@@ -102,9 +102,9 @@ func TestValidateGatePriority(t *testing.T) {
 			p: newPayload(func(p *Payload) {
 				p.IssuedAt = now.Add(-96 * time.Hour)
 				p.ExpiresAt = &past
-				p.DeviceBinding = DeviceBinding{Mode: DeviceModeSingle, DeviceIDs: []string{"sha256:abc"}}
+				p.DeviceBinding = DeviceBinding{Mode: DeviceModeSingle, DeviceIDs: []string{fpDeviceA}}
 			}),
-			ctx:  ValidationContext{DeviceFingerprint: "sha256:other"},
+			ctx:  ValidationContext{DeviceFingerprint: fpDeviceOther},
 			want: CodeDeviceMismatch,
 		},
 		{
