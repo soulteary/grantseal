@@ -16,8 +16,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 This release is a one-time, clean protocol upgrade. Read the **Migration** notes
 below before upgrading.
 
+- **License payload schema v2.** The license payload `schema_version` is
+  raised from `1` to **`2`**, paired with the new `grantseal/license/v2\x00`
+  signing domain. Legacy v1 licenses (`schema_version = 1`, signed under the
+  old `grantseal/license/v1\x00` domain) are now **explicitly rejected** with
+  `LICENSE_UNSUPPORTED_SCHEMA` rather than failing signature verification, so
+  the protocol boundary is machine-readable and mutually exclusive. **All
+  existing licenses must be re-issued** as v2.
 - **Signing domain separation.** License signatures are now computed over a
-  domain-separated payload (`grantseal/license/v1\x00` prefix) and revocation
+  domain-separated payload (`grantseal/license/v2\x00` prefix) and revocation
   lists over `grantseal/revocation/v2\x00`. This binds a signature to its
   intended context and prevents cross-protocol signature reuse.
 - **Revocation protocol v2 (replay-resistant).** Revocation lists carry
@@ -191,7 +198,7 @@ written in Go 1.26 using **only the standard library**.
 - Ed25519-signed license issuing, verification, and management.
 - License wire format `Envelope{algorithm, key_id, payload, signature}` with a
   canonical (deterministic sorted-key) JSON payload. The on-disk license schema
-  is fixed at **`schema_version = 1`**; unknown versions are rejected.
+  is fixed at **`schema_version = 2`**; unknown versions are rejected.
 - `pkg/license`: client-side, fail-closed verification (public keys only, never
   contains private keys) with a read-only `ValidationResult` facade
   (`RequireFeature`, `CheckLimit`, `GetEdition`, `GetExpiration`,
@@ -215,7 +222,7 @@ written in Go 1.26 using **only the standard library**.
 
 ### Schema
 
-- `schema_version = 1` — the current and only accepted license schema version.
+- `schema_version = 2` — the current and only accepted license schema version.
   Any future breaking change to the payload layout will bump this value and be
   recorded here.
 

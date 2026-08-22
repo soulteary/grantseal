@@ -32,7 +32,7 @@ Runnable examples and multi-scenario issue/verify configs live in
 
 | Field                | Notes                                                      |
 | -------------------- | ---------------------------------------------------------- |
-| `schema_version`     | Only `1` is accepted; unknown versions rejected.           |
+| `schema_version`     | Only `2` is accepted; unknown versions rejected.           |
 | `license_id`         | Unique, crypto-random when issued.                         |
 | `serial_number`      | Human-friendly grouped serial.                             |
 | `product_id`         | Must match the client's product when provided.             |
@@ -296,7 +296,7 @@ surfaced in Go under two identifiers (`CodeFeatureUnavailable` and its alias
   license file", offer re-import.
 - **`LICENSE_UNSUPPORTED_ALGORITHM`** — Envelope algorithm is not `Ed25519`.
   *Trigger:* wrong/forged algorithm field. *UX:* reject as invalid.
-- **`LICENSE_UNSUPPORTED_SCHEMA`** — `schema_version` is not `1`. *Trigger:* a
+- **`LICENSE_UNSUPPORTED_SCHEMA`** — `schema_version` is not `2`. *Trigger:* a
   license issued by a newer/older incompatible tool. *UX:* prompt to upgrade the
   app or obtain a compatible license.
 - **`LICENSE_KEY_UNKNOWN`** — The envelope `key_id` is not in the client's key

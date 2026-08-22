@@ -258,7 +258,7 @@ func TestSignDomainSeparation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	msg := []byte(`{"schema_version":1}`)
+	msg := []byte(`{"schema_version":2}`)
 	licSig := issuer.SignLicenseBytes(s, msg)
 	revSig := issuer.SignRevocationBytes(s, msg)
 

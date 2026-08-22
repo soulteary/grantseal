@@ -13,14 +13,19 @@ version for the module; a bump of any surface below is reflected there.
 
 - Field: `schema_version` inside the signed payload; also the revocation-list
   schema and the anti-rollback state format.
-- **Current:** license payload `schema_version = 1`; revocation list **v2** with
-  domain-separation prefix `grantseal/revocation/v2\x00`.
+- **Current:** license payload `schema_version = 2` (signed under the
+  domain-separation prefix `grantseal/license/v2\x00`); revocation list **v2**
+  with domain-separation prefix `grantseal/revocation/v2\x00`.
 - Rules · 规则:
   - A **new** schema version is introduced additively; the verifier accepts a
     bounded, explicit allowlist of versions and **rejects** everything else
     (fail-closed, never silently downgraded).
   - Legacy v1 revocation lists are rejected **by default** and only accepted
     when the caller opts in with `AllowLegacyV1Revocation()`.
+  - Legacy **v1 license payloads** (`schema_version = 1`, signed under the
+    `grantseal/license/v1\x00` domain) are **no longer accepted**; they are
+    rejected as `LICENSE_UNSUPPORTED_SCHEMA`. This is a breaking change; see
+    `CHANGELOG.md` for the migration note (licenses must be re-issued as v2).
   - Removing acceptance of an old schema version is a **breaking change**
     (major bump) and must ship a migration note here and in `CHANGELOG.md`.
 

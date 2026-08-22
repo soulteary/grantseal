@@ -27,7 +27,7 @@ examples/          客户端集成 + 批量签发配置
 
 ## 数据模型（`pkg/license.Payload`）
 
-- `schema_version`：仅接受 `1`，未知版本直接拒绝。
+- `schema_version`：仅接受 `2`，未知版本直接拒绝。
 - `license_id` / `serial_number`：签发时用 `crypto/rand` 生成。
 - `product_id`：调用方传入时必须匹配。
 - `edition`：`trial`/`basic`/`professional`/`enterprise`（白名单）。
@@ -250,7 +250,7 @@ _ = res.DeviceMatched()     // 设备绑定是否满足
   篡改或类型错误。*UX：* 提示"许可文件无效"，引导重新导入。
 - **`LICENSE_UNSUPPORTED_ALGORITHM`** —— 信封算法不是 `Ed25519`。*触发：* 算法字段
   错误或被伪造。*UX：* 判为无效。
-- **`LICENSE_UNSUPPORTED_SCHEMA`** —— `schema_version` 不为 `1`。*触发：* 由不兼容
+- **`LICENSE_UNSUPPORTED_SCHEMA`** —— `schema_version` 不为 `2`。*触发：* 由不兼容
   的新/旧工具签发。*UX：* 提示升级应用或换取兼容许可。
 - **`LICENSE_KEY_UNKNOWN`** —— 信封 `key_id` 不在客户端公钥环内。*触发：* 由应用未
   内置的密钥签发。*UX：* 判为无效，可能是构建/渠道不匹配。

@@ -7,7 +7,9 @@ import (
 
 // LicenseSchemaVersion is the only license payload schema version this build
 // understands. Unknown schema versions are rejected (no silent downgrade).
-const LicenseSchemaVersion = 1
+// v2 pairs with the grantseal/license/v2 signing domain: legacy v1 payloads
+// are rejected as CodeUnsupportedSchema (a breaking, one-time clean upgrade).
+const LicenseSchemaVersion = 2
 
 // RevocationSchemaVersion is the current revocation-list schema version. v2 adds
 // replay-resistance metadata (list_id, sequence, expires_at) over the legacy v1
@@ -67,8 +69,8 @@ const AlgorithmEd25519 Algorithm = "Ed25519"
 // (pre-domain-separation) signatures.
 const (
 	// LicenseSigningDomain is prepended to canonical license payload bytes
-	// before signing/verification.
-	LicenseSigningDomain = "grantseal/license/v1\x00"
+	// before signing/verification (schema v2).
+	LicenseSigningDomain = "grantseal/license/v2\x00"
 	// RevocationSigningDomain is prepended to canonical revocation payload
 	// bytes before signing/verification (schema v2).
 	RevocationSigningDomain = "grantseal/revocation/v2\x00"

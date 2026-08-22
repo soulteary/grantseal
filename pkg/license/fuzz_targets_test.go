@@ -25,7 +25,7 @@ func FuzzCanonicalBytes(f *testing.F) {
 		}
 	}
 	f.Add([]byte(`{}`))
-	f.Add([]byte(`{"schema_version":1,"license_id":"l","product_id":"p","key_id":"k"}`))
+	f.Add([]byte(`{"schema_version":2,"license_id":"l","product_id":"p","key_id":"k"}`))
 	f.Add([]byte(`{"limits":{"a":1,"z":9007199254740993},"metadata":{"<":">"}}`))
 	f.Add([]byte(`{"customer_name":"日本語 <b>&amp;</b>"}`))
 	f.Add([]byte(`not json`))

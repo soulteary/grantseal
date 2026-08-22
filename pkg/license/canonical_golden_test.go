@@ -23,7 +23,7 @@ func TestCanonicalBytesGoldenVectors(t *testing.T) {
 		{
 			name: "minimal_sorted_keys",
 			p: &license.Payload{
-				SchemaVersion: 1,
+				SchemaVersion: 2,
 				LicenseID:     "l1",
 				ProductID:     "p1",
 				KeyID:         "k1",
@@ -33,12 +33,12 @@ func TestCanonicalBytesGoldenVectors(t *testing.T) {
 				DeviceBinding: license.DeviceBinding{Mode: license.DeviceModeNone},
 			},
 			// Keys are emitted in sorted order; omitempty fields absent.
-			want: `{"customer_id":"","device_binding":{"mode":"none"},"edition":"basic","grace_period_days":0,"issued_at":"2024-01-02T03:04:05Z","key_id":"k1","license_id":"l1","license_type":"lifetime","product_id":"p1","schema_version":1,"serial_number":"","version_constraint":{}}`,
+			want: `{"customer_id":"","device_binding":{"mode":"none"},"edition":"basic","grace_period_days":0,"issued_at":"2024-01-02T03:04:05Z","key_id":"k1","license_id":"l1","license_type":"lifetime","product_id":"p1","schema_version":2,"serial_number":"","version_constraint":{}}`,
 		},
 		{
 			name: "html_and_unicode_not_escaped",
 			p: &license.Payload{
-				SchemaVersion: 1,
+				SchemaVersion: 2,
 				LicenseID:     "l<&>2",
 				ProductID:     "p1",
 				KeyID:         "k1",
@@ -48,12 +48,12 @@ func TestCanonicalBytesGoldenVectors(t *testing.T) {
 				IssuedAt:      issued,
 				DeviceBinding: license.DeviceBinding{Mode: license.DeviceModeNone},
 			},
-			want: `{"customer_id":"","customer_name":"Ünïcode <b>&amp;</b> 日本語","device_binding":{"mode":"none"},"edition":"basic","grace_period_days":0,"issued_at":"2024-01-02T03:04:05Z","key_id":"k1","license_id":"l<&>2","license_type":"lifetime","product_id":"p1","schema_version":1,"serial_number":"","version_constraint":{}}`,
+			want: `{"customer_id":"","customer_name":"Ünïcode <b>&amp;</b> 日本語","device_binding":{"mode":"none"},"edition":"basic","grace_period_days":0,"issued_at":"2024-01-02T03:04:05Z","key_id":"k1","license_id":"l<&>2","license_type":"lifetime","product_id":"p1","schema_version":2,"serial_number":"","version_constraint":{}}`,
 		},
 		{
 			name: "nested_maps_sorted_and_numbers_preserved",
 			p: &license.Payload{
-				SchemaVersion: 1,
+				SchemaVersion: 2,
 				LicenseID:     "l3",
 				ProductID:     "p1",
 				KeyID:         "k1",
@@ -64,7 +64,7 @@ func TestCanonicalBytesGoldenVectors(t *testing.T) {
 				Limits:        map[string]int64{"z": 3, "a": 1099511627776, "m": 0},
 				Metadata:      map[string]string{"z": "1", "a": "2"},
 			},
-			want: `{"customer_id":"","device_binding":{"mode":"none"},"edition":"professional","grace_period_days":0,"issued_at":"2024-01-02T03:04:05Z","key_id":"k1","license_id":"l3","license_type":"lifetime","limits":{"a":1099511627776,"m":0,"z":3},"metadata":{"a":"2","z":"1"},"product_id":"p1","schema_version":1,"serial_number":"","version_constraint":{}}`,
+			want: `{"customer_id":"","device_binding":{"mode":"none"},"edition":"professional","grace_period_days":0,"issued_at":"2024-01-02T03:04:05Z","key_id":"k1","license_id":"l3","license_type":"lifetime","limits":{"a":1099511627776,"m":0,"z":3},"metadata":{"a":"2","z":"1"},"product_id":"p1","schema_version":2,"serial_number":"","version_constraint":{}}`,
 		},
 	}
 
@@ -99,7 +99,7 @@ func TestCanonicalBytesNilRejected(t *testing.T) {
 func TestCanonicalBytesStableAcrossMapOrder(t *testing.T) {
 	build := func() *license.Payload {
 		return &license.Payload{
-			SchemaVersion: 1,
+			SchemaVersion: 2,
 			LicenseID:     "l1",
 			ProductID:     "p1",
 			KeyID:         "k1",
