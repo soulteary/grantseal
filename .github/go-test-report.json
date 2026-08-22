@@ -1,52 +1,52 @@
 {
   "schema_version": "1.0",
   "environment": {
-    "commit": "0f77da06af007530da53ef91db1b78a0ad3c1e08",
-    "generated_at": "2026-08-22T08:27:53Z",
+    "commit": "a8c05a3b439ad1c83a889118d7e191b247b37111",
+    "generated_at": "2026-08-22T11:42:28Z",
     "go_version": "go1.26.6",
     "os": "linux",
     "arch": "amd64"
   },
   "tests": {
-    "total": 399,
-    "passed": 399,
+    "total": 448,
+    "passed": 448,
     "failed": 0,
     "skipped": 0
   },
   "coverage": {
-    "covered_statements": 1845,
-    "total_statements": 1967,
-    "percentage": 93.8,
+    "covered_statements": 1998,
+    "total_statements": 2115,
+    "percentage": 94.47,
     "threshold": 93
   },
   "packages": [
     {
       "name": "cmd/license-tool",
       "status": "pass",
-      "tests": 79,
+      "tests": 109,
       "failed": 0,
-      "coverage": 91.8
+      "coverage": 93.16
     },
     {
       "name": "internal/issuer",
       "status": "pass",
-      "tests": 60,
+      "tests": 63,
       "failed": 0,
-      "coverage": 91.73
+      "coverage": 93.23
     },
     {
       "name": "pkg/fingerprint",
       "status": "pass",
-      "tests": 26,
+      "tests": 40,
       "failed": 0,
-      "coverage": 94.33
+      "coverage": 96.72
     },
     {
       "name": "pkg/license",
       "status": "pass",
-      "tests": 234,
+      "tests": 236,
       "failed": 0,
-      "coverage": 94.97
+      "coverage": 95
     }
   ],
   "failures": null
