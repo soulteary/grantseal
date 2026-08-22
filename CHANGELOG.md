@@ -11,6 +11,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-08-22
+
 ### Security & protocol hardening (quality hardening initiative)
 
 This release is a one-time, clean protocol upgrade. Read the **Migration** notes
@@ -253,7 +255,7 @@ written in Go 1.26 using **only the standard library**.
   canonical (deterministic sorted-key) JSON payload. The on-disk license schema
   is fixed at **`schema_version = 1`**; unknown versions are rejected. The
   Ed25519 signature covers the canonical payload bytes **directly**, without a
-  signing-domain prefix. (Both are changed by the Unreleased protocol upgrade
+  signing-domain prefix. (Both are changed by the 0.9.0 protocol upgrade
   above — schema `2` and a `grantseal/license/v2\x00` signing domain.)
 - `pkg/license`: client-side, fail-closed verification (public keys only, never
   contains private keys) with a read-only `ValidationResult` facade
@@ -281,8 +283,9 @@ written in Go 1.26 using **only the standard library**.
 - `schema_version = 1` — the license schema version shipped in this release.
   The signature covers the canonical payload bytes directly (no signing-domain
   prefix). Any future breaking change to the payload layout bumps this value and
-  is recorded here (see the Unreleased entry, which raises it to `2` and adds
+  is recorded here (see the 0.9.0 entry, which raises it to `2` and adds
   signing-domain separation).
 
-[Unreleased]: https://github.com/soulteary/grantseal/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/soulteary/grantseal/compare/v0.9.0...HEAD
+[0.9.0]: https://github.com/soulteary/grantseal/compare/v0.1.0...v0.9.0
 [0.1.0]: https://github.com/soulteary/grantseal/releases/tag/v0.1.0
