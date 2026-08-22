@@ -214,6 +214,27 @@ func TestValidateEnumsArms(t *testing.T) {
 			t.Fatalf("want CodeMalformed, got %s", CodeOf(err))
 		}
 	})
+	t.Run("device_mode_none_with_ids", func(t *testing.T) {
+		p := basePayload()
+		p.DeviceBinding = DeviceBinding{Mode: DeviceModeNone, DeviceIDs: []string{"dev-1"}}
+		if err := p.validateStatic(); CodeOf(err) != CodeMalformed {
+			t.Fatalf("want CodeMalformed for none-with-ids, got %s", CodeOf(err))
+		}
+	})
+	t.Run("device_mode_single_multiple_ids", func(t *testing.T) {
+		p := basePayload()
+		p.DeviceBinding = DeviceBinding{Mode: DeviceModeSingle, DeviceIDs: []string{"dev-1", "dev-2"}}
+		if err := p.validateStatic(); CodeOf(err) != CodeMalformed {
+			t.Fatalf("want CodeMalformed for single-with-two-ids, got %s", CodeOf(err))
+		}
+	})
+	t.Run("device_mode_single_exactly_one_ok", func(t *testing.T) {
+		p := basePayload()
+		p.DeviceBinding = DeviceBinding{Mode: DeviceModeSingle, DeviceIDs: []string{"dev-1"}}
+		if err := p.validateStatic(); err != nil {
+			t.Fatalf("single with exactly one id should be valid, got %v", err)
+		}
+	})
 }
 
 func TestValidateLimitsRangeArms(t *testing.T) {

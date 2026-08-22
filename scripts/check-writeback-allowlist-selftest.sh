@@ -49,12 +49,17 @@ echo '# report' >.github/go-test-report.md
 echo '<svg/>' >.github/coverage.svg
 echo '<svg/>' >.github/goreportcard.svg
 echo '# grc' >.github/goreportcard-report.md
+mkdir -p docs/enUS docs/zhCN
+echo '# quality' >docs/enUS/quality.md
+echo '# 质量' >docs/zhCN/quality.md
 git add -- \
   .github/go-test-report.json \
   .github/go-test-report.md \
   .github/coverage.svg \
   .github/goreportcard.svg \
-  .github/goreportcard-report.md
+  .github/goreportcard-report.md \
+  docs/enUS/quality.md \
+  docs/zhCN/quality.md
 if ! bash scripts/check-writeback-allowlist.sh >/dev/null 2>&1; then
   echo "SELFTEST FAIL: gate rejected an allowlisted-only staged set" >&2
   exit 1

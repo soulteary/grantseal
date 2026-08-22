@@ -16,6 +16,8 @@
 #   .github/coverage.svg
 #   .github/goreportcard.svg
 #   .github/goreportcard-report.md
+#   docs/enUS/quality.md
+#   docs/zhCN/quality.md
 #
 # Exit codes:
 #   0  every staged path is allowlisted (or nothing is staged)
@@ -31,6 +33,8 @@ ALLOWLIST=(
   ".github/coverage.svg"
   ".github/goreportcard.svg"
   ".github/goreportcard-report.md"
+  "docs/enUS/quality.md"
+  "docs/zhCN/quality.md"
 )
 
 is_allowed() {

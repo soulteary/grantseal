@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sync"
 	"time"
 )
@@ -30,12 +31,24 @@ type rollbackMACInput struct {
 
 // RollbackStore persists and integrity-checks RollbackState on disk. The HMAC
 // key should be derived from a built-in secret combined with a device
-// fingerprint so the state cannot be trivially forged or transplanted. It is
-// safe for concurrent use: all load/check/save sequences are serialized under
-// mu so concurrent validations cannot lose updates or regress the high-water
-// mark.
+// fingerprint so the state cannot be trivially forged or transplanted.
+//
+// SINGLE-PROCESS WRITER: it is safe for concurrent use within a single process
+// — every load/check/save sequence is serialized under a shared per-path mutex
+// (keyed by the cleaned absolute path via the package-level registry), so two
+// RollbackStore instances pointing at the same file cannot lose updates or
+// regress the high-water mark. This is NOT cross-process safe: no OS-level file
+// lock is taken (a deliberate design limit — zero third-party dependencies, no
+// platform-specific syscalls), so a second OS process writing the same file
+// concurrently can still race. The atomic rename keeps each individual write
+// all-or-nothing, but does not make cross-process transactions serializable;
+// deploy exactly one writer process.
 type RollbackStore struct {
-	mu      sync.Mutex
+	// mu is the shared per-path mutex resolved once at construction from the
+	// package-level registry, so all in-process instances that target the same
+	// file serialize their transactions against each other (not just against
+	// themselves).
+	mu      *sync.Mutex
 	path    string
 	hmacKey []byte
 	skew    time.Duration
@@ -55,7 +68,7 @@ func NewRollbackStore(path string, hmacKey []byte, skew time.Duration) (*Rollbac
 	}
 	k := make([]byte, len(hmacKey))
 	copy(k, hmacKey)
-	return &RollbackStore{path: path, hmacKey: k, skew: skew}, nil
+	return &RollbackStore{mu: pathLockFor(path), path: path, hmacKey: k, skew: skew}, nil
 }
 
 func (s *RollbackStore) mac(in rollbackMACInput) (string, error) {
@@ -208,15 +221,25 @@ func DeriveRollbackKeyStrict(builtinSecret []byte, fingerprint string) ([]byte, 
 }
 
 // Filesystem seams: defaults are the real os.* implementations. Tests override
-// these to exercise the durability failure arms (temp-create/write/sync/rename)
-// that are otherwise unreachable on a healthy filesystem.
+// these to exercise the durability failure arms (temp-create/write/sync/rename
+// and the parent-directory fsync) that are otherwise unreachable on a healthy
+// filesystem.
 var (
 	fsCreateTemp = os.CreateTemp
 	fsRename     = os.Rename
+	fsOpen       = os.Open
+	runtimeGOOS  = runtime.GOOS
 )
 
 // atomicWriteFile writes data to a temp file in the same directory and renames
-// it over the target, giving an atomic replace on POSIX filesystems.
+// it over the target, giving an atomic replace on POSIX filesystems. It fsyncs
+// the temp file's contents before the rename and the parent directory after it,
+// so a crash cannot leave a half-written or non-durable file. On POSIX a
+// parent-directory fsync failure is fatal (the rename is not yet guaranteed
+// durable); on platforms/filesystems where directory fsync is unsupported (e.g.
+// Windows) the directory-open/sync step is skipped rather than treated as an
+// error. This matches the durability contract described on the callers
+// (RollbackStore.CheckAndSave, FileRevocationStateStore).
 func atomicWriteFile(path string, data []byte, perm os.FileMode) error {
 	dir := filepath.Dir(path)
 	tmp, err := fsCreateTemp(dir, ".tmp-*")
@@ -245,11 +268,33 @@ func atomicWriteFile(path string, data []byte, perm os.FileMode) error {
 	}
 	// fsync the parent directory so the rename is durable across a crash
 	// (POSIX: a rename is not guaranteed persistent until the directory entry
-	// is synced). Best-effort on platforms/filesystems where directory sync is
-	// unsupported.
-	if d, derr := os.Open(dir); derr == nil {
-		_ = d.Sync()
+	// is synced). On POSIX a failure here is fatal because the write is not yet
+	// durable; on Windows directory fsync is unsupported, so the step is
+	// skipped rather than reported as an error.
+	return fsyncStateDir(dir)
+}
+
+// fsyncStateDir fsyncs a directory so a create/rename entry within it survives
+// a crash. On Windows (where directory fsync is unsupported) it is a no-op; on
+// POSIX an open/sync failure is returned so callers do not report a write as
+// durable when the directory entry was not synced.
+func fsyncStateDir(dir string) error {
+	d, err := fsOpen(dir)
+	if err != nil {
+		if runtimeGOOS == "windows" {
+			return nil
+		}
+		return newError(CodeStateIntegrityFailure, "open state dir for fsync", err)
+	}
+	if err := d.Sync(); err != nil {
 		_ = d.Close()
+		if runtimeGOOS == "windows" {
+			return nil
+		}
+		return newError(CodeStateIntegrityFailure, "fsync state dir", err)
+	}
+	if err := d.Close(); err != nil {
+		return newError(CodeStateIntegrityFailure, "close state dir", err)
 	}
 	return nil
 }

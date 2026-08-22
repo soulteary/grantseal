@@ -4,24 +4,26 @@
 
 相关文档：[README](./README.md) · [架构](./architecture.md) · [性能](./performance.md) · [安全](../../SECURITY.md)
 
-> **说明。** 下方生成区块中的覆盖率数字来自唯一机器可读事实来源
+> **说明。** 下方生成区块中的记录环境与覆盖率数字均来自唯一机器可读事实来源
 > [`.github/go-test-report.json`](../../.github/go-test-report.json)，经
 > `scripts/generate-quality-docs.sh` 生成。区块以外的说明性文字由人工维护。
 
-## 记录环境
-
-- 日期（UTC）：2026-08-21
-- Go 版本：`go1.26.6`
-- OS / 架构：`darwin/arm64`
-- 命令：`go test ./... -covermode=atomic -coverprofile=coverage.out && go tool cover -func=coverage.out`
-
-确切的提交与机器数值记录在唯一事实来源
-[`.github/go-test-report.json`](../../.github/go-test-report.json) 中，由覆盖率工作流
-重新生成并提交。下方覆盖率数字由 `scripts/generate-quality-docs.sh` 从该 JSON 生成，
-请勿手工编辑（CI 会运行生成器并在出现 diff 时失败）。
+记录环境（提交、生成时间、Go 版本、OS/架构）与覆盖率数字都取自该 JSON 的
+`environment` 与 `coverage` 字段，由覆盖率工作流重新生成并提交，因此不会与实测运行
+漂移；下方生成区块请勿手工编辑（CI 会运行生成器并在出现 diff 时失败）。测试命令：
+`go test ./cmd/... ./internal/... ./pkg/... -covermode=atomic -coverprofile=coverage.out`。
 
 <!-- BEGIN:GENERATED-COVERAGE -->
 <!-- 由 scripts/generate-quality-docs.sh 从 .github/go-test-report.json 生成，请勿手工编辑。 -->
+
+## 记录环境
+
+- 提交：`69dcdc471635b2124950921fd258db2af12822c4`
+- 生成时间（UTC）：`2026-08-22T00:00:00Z`
+- Go 版本：`go1.26.6`
+- 操作系统 / 架构：`darwin/arm64`
+
+这些值取自 `.github/go-test-report.json` 的 `environment` 字段（唯一的机器可读来源），因此不会与实际运行漂移。
 
 ## 总覆盖率
 

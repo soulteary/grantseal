@@ -302,6 +302,24 @@ jobs:
           package_threshold: "88"
           commit: "false"
 
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: 'go.mod'
+          check-latest: false
+
+      # Stamp the environment of record (commit / time / Go version / OS-arch)
+      # into the report JSON so the quality docs render it from the single
+      # machine-readable source of truth instead of hand-typed prose that drifts.
+      - name: inject environment of record into report JSON
+        env:
+          REPORT_COMMIT: ${{ github.sha }}
+        run: bash scripts/inject-report-environment.sh
+
+      # Regenerate the coverage-derived doc blocks from the freshly stamped JSON
+      # so the committed docs match the report that ships with this commit.
+      - name: regenerate quality docs from report JSON
+        run: bash scripts/generate-quality-docs.sh
+
       # Hand only the report artifacts to the write-back job. The downstream job
       # restores exactly these paths, so nothing else can enter the commit.
       - name: upload generated report artifacts
@@ -312,6 +330,8 @@ jobs:
             .github/go-test-report.json
             .github/go-test-report.md
             .github/coverage.svg
+            docs/enUS/quality.md
+            docs/zhCN/quality.md
           if-no-files-found: error
 
   coverage-report-writeback:
@@ -335,7 +355,7 @@ jobs:
         uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6.0.0
         with:
           name: coverage-report-${{ github.run_id }}
-          path: .github
+          path: .
 
       - name: stage, verify allowlist, and commit report
         run: |
@@ -344,7 +364,9 @@ jobs:
           git add -- \
             .github/go-test-report.json \
             .github/go-test-report.md \
-            .github/coverage.svg
+            .github/coverage.svg \
+            docs/enUS/quality.md \
+            docs/zhCN/quality.md
           # Fail closed if anything outside the report allowlist got staged.
           bash scripts/check-writeback-allowlist.sh
           if git diff --cached --quiet; then

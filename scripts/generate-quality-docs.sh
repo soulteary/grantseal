@@ -45,9 +45,40 @@ cov = data["coverage"]
 total = cov["percentage"]
 threshold = cov["threshold"]
 pkgs = {p["name"]: p for p in data["packages"]}
+env = data.get("environment", {})
 
 BEGIN = "<!-- BEGIN:GENERATED-COVERAGE -->"
 END = "<!-- END:GENERATED-COVERAGE -->"
+
+def env_val(key, default="unknown"):
+    v = env.get(key)
+    return v if v else default
+
+def env_block(lang):
+    commit = env_val("commit")
+    generated_at = env_val("generated_at")
+    go_version = env_val("go_version")
+    os_arch = f"{env_val('os')}/{env_val('arch')}"
+    if lang == "en":
+        return (
+            "## Environment of record\n\n"
+            f"- Commit: `{commit}`\n"
+            f"- Generated (UTC): `{generated_at}`\n"
+            f"- Go version: `{go_version}`\n"
+            f"- OS / arch: `{os_arch}`\n\n"
+            "These values come from the `environment` block of "
+            "`.github/go-test-report.json`, the single machine-readable source "
+            "of truth, so they cannot drift from the recorded run.\n\n"
+        )
+    return (
+        "## 记录环境\n\n"
+        f"- 提交：`{commit}`\n"
+        f"- 生成时间（UTC）：`{generated_at}`\n"
+        f"- Go 版本：`{go_version}`\n"
+        f"- 操作系统 / 架构：`{os_arch}`\n\n"
+        "这些值取自 `.github/go-test-report.json` 的 `environment` 字段"
+        "（唯一的机器可读来源），因此不会与实际运行漂移。\n\n"
+    )
 
 def pkg_cov(name):
     p = pkgs.get(name)
@@ -63,6 +94,7 @@ def block(lang):
             f"{BEGIN}\n"
             "<!-- Generated from .github/go-test-report.json by "
             "scripts/generate-quality-docs.sh. Do not edit by hand. -->\n\n"
+            f"{env_block('en')}"
             "## Total coverage\n\n"
             f"- **Total:** `{total:.2f}%` of statements "
             f"({cov['covered_statements']}/{cov['total_statements']})\n"
@@ -85,6 +117,7 @@ def block(lang):
             f"{BEGIN}\n"
             "<!-- 由 scripts/generate-quality-docs.sh 从 .github/go-test-report.json "
             "生成，请勿手工编辑。 -->\n\n"
+            f"{env_block('zh')}"
             "## 总覆盖率\n\n"
             f"- **总计：** `{total:.2f}%` 语句覆盖率"
             f"（{cov['covered_statements']}/{cov['total_statements']}）\n"

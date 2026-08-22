@@ -1,5 +1,12 @@
 {
   "schema_version": "1.0",
+  "environment": {
+    "commit": "69dcdc471635b2124950921fd258db2af12822c4",
+    "generated_at": "2026-08-22T00:00:00Z",
+    "go_version": "go1.26.6",
+    "os": "darwin",
+    "arch": "arm64"
+  },
   "tests": {
     "total": 396,
     "passed": 396,

@@ -4,7 +4,6 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"os"
 	"time"
 
 	"github.com/soulteary/grantseal/internal/issuer"
@@ -59,9 +58,9 @@ func cmdIssue(args []string, stdout, stderr io.Writer) error {
 		return usageErrorf("issue: -config and -key are required")
 	}
 
-	cfgData, err := os.ReadFile(*configPath)
+	cfgData, err := readFileBounded(*configPath, "config", license.MaxLicenseFileSize)
 	if err != nil {
-		return fmt.Errorf("issue: read config: %w", err)
+		return fmt.Errorf("issue: %w", err)
 	}
 	var cfg issueConfig
 	if err := license.DecodeStrictJSON(cfgData, &cfg, license.MaxLicenseFileSize); err != nil {

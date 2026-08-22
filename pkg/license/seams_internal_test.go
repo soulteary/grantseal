@@ -21,6 +21,35 @@ func withFSSeams(t *testing.T, createTemp func(string, string) (*os.File, error)
 	t.Cleanup(func() { fsCreateTemp, fsRename = oc, or })
 }
 
+// TestAtomicWriteFileDirFsyncError drives the parent-directory fsync failure
+// arm: on non-Windows a dir-open failure must be reported as a durability
+// failure rather than silently ignored.
+func TestAtomicWriteFileDirFsyncError(t *testing.T) {
+	oOpen, oGOOS := fsOpen, runtimeGOOS
+	fsOpen = func(string) (*os.File, error) { return nil, errors.New("boom dir open") }
+	runtimeGOOS = "linux"
+	t.Cleanup(func() { fsOpen, runtimeGOOS = oOpen, oGOOS })
+
+	err := atomicWriteFile(filepath.Join(t.TempDir(), "x"), []byte("data"), 0o600)
+	if CodeOf(err) != CodeStateIntegrityFailure {
+		t.Fatalf("want CodeStateIntegrityFailure for dir fsync failure, got %v", err)
+	}
+}
+
+// TestAtomicWriteFileDirFsyncWindowsSkips confirms that on Windows a
+// directory-open failure is treated as a no-op (directory fsync unsupported),
+// so the write still succeeds.
+func TestAtomicWriteFileDirFsyncWindowsSkips(t *testing.T) {
+	oOpen, oGOOS := fsOpen, runtimeGOOS
+	fsOpen = func(string) (*os.File, error) { return nil, errors.New("boom dir open") }
+	runtimeGOOS = "windows"
+	t.Cleanup(func() { fsOpen, runtimeGOOS = oOpen, oGOOS })
+
+	if err := atomicWriteFile(filepath.Join(t.TempDir(), "x"), []byte("data"), 0o600); err != nil {
+		t.Fatalf("windows dir fsync should be skipped, got %v", err)
+	}
+}
+
 func TestAtomicWriteFileCreateTempError(t *testing.T) {
 	withFSSeams(t, func(string, string) (*os.File, error) {
 		return nil, errors.New("boom create temp")

@@ -5,7 +5,6 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"os"
 
 	"github.com/soulteary/grantseal/pkg/license"
 )
@@ -22,9 +21,9 @@ func cmdInspect(args []string, stdout, stderr io.Writer) error {
 	if *licPath == "" || *pubPath == "" {
 		return usageErrorf("inspect: -license and -pubkey are required")
 	}
-	licData, err := os.ReadFile(*licPath)
+	licData, err := readFileBounded(*licPath, "license", license.MaxLicenseFileSize)
 	if err != nil {
-		return fmt.Errorf("inspect: read license: %w", err)
+		return fmt.Errorf("inspect: %w", err)
 	}
 	pubB64, err := readPublicKeyFile(*pubPath)
 	if err != nil {

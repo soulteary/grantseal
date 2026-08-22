@@ -6,10 +6,13 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"runtime"
 	"time"
+
+	"github.com/soulteary/grantseal/pkg/license"
 )
 
 func timeNow() time.Time { return time.Now().UTC() }
@@ -164,11 +167,41 @@ func fsyncDir(dir string) error {
 	return d.Close()
 }
 
+// readFileBounded reads at most maxSize bytes from path, refusing files whose
+// size already exceeds the cap before reading their contents. It stats the file
+// first to reject oversized inputs cheaply, then reads through an
+// io.LimitReader(maxSize+1) so a file that grows between the stat and the read
+// (or a stat that under-reports, e.g. a growing/pipe-like path) still cannot
+// force us to buffer more than the cap. The label is used in error messages
+// (e.g. "license", "revocation").
+func readFileBounded(path, label string, maxSize int64) ([]byte, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, fmt.Errorf("read %s: %w", label, err)
+	}
+	defer func() { _ = f.Close() }()
+
+	if info, serr := f.Stat(); serr == nil && info.Mode().IsRegular() && info.Size() > maxSize {
+		return nil, fmt.Errorf("%s file too large (%d > %d bytes)", label, info.Size(), maxSize)
+	}
+
+	// Read one byte past the cap so we can distinguish "exactly at the cap"
+	// from "over the cap" even when Stat under-reported the size.
+	data, err := io.ReadAll(io.LimitReader(f, maxSize+1))
+	if err != nil {
+		return nil, fmt.Errorf("read %s: %w", label, err)
+	}
+	if int64(len(data)) > maxSize {
+		return nil, fmt.Errorf("%s file too large (> %d bytes)", label, maxSize)
+	}
+	return data, nil
+}
+
 // readPublicKeyFile loads a Base64URL public key file's contents (trimmed).
 func readPublicKeyFile(path string) (string, error) {
-	b, err := os.ReadFile(path)
+	b, err := readFileBounded(path, "public key", license.MaxLicenseFileSize)
 	if err != nil {
-		return "", fmt.Errorf("read public key: %w", err)
+		return "", err
 	}
 	return string(bytes.TrimSpace(b)), nil
 }

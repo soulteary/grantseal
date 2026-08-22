@@ -45,7 +45,7 @@ func main() {
 	// 2. Optionally compute this device's fingerprint for device-bound licenses.
 	device := ""
 	if *bindDevice {
-		fp, err := fingerprint.Compute(*namespace)
+		fp, err := fingerprint.ComputeDefault(*namespace)
 		if err != nil {
 			if errors.Is(err, fingerprint.ErrInsufficientInfo) {
 				fmt.Fprintln(os.Stderr, "cannot compute device fingerprint on this platform")

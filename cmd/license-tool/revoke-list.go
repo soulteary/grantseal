@@ -4,7 +4,6 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"os"
 	"strings"
 	"time"
 
@@ -45,9 +44,9 @@ func registerRevokeListFlags(fs *flag.FlagSet) *revokeListFlags {
 func collectRevokedIDs(ids, idsFile string) ([]string, error) {
 	revoked := splitCSV(ids)
 	if idsFile != "" {
-		data, err := os.ReadFile(idsFile)
+		data, err := readFileBounded(idsFile, "ids-file", license.MaxRevocationFileSize)
 		if err != nil {
-			return nil, fmt.Errorf("revoke-list: read ids-file: %w", err)
+			return nil, fmt.Errorf("revoke-list: %w", err)
 		}
 		for _, line := range strings.Split(string(data), "\n") {
 			line = strings.TrimSpace(line)

@@ -47,6 +47,31 @@ below before upgrading.
 - **Durable file writes.** `keygen` and license writes use `O_EXCL` (no-clobber)
   and atomic temp-file + `fsync` + `rename` (with parent-dir fsync) so a crash
   cannot leave a partially written or half-overwritten key/license.
+- **Fingerprint v2 is the default for new integrations.** Version-agnostic
+  entry points `ComputeDefault` / `ComputeHMACDefault` / `RequestCodeDefault`
+  (and `Manager.GetDeviceRequestCode`, the `license-tool fingerprint` command,
+  and the client example) now resolve to the more stable v2 per-platform
+  primary identifier. The legacy `Compute` / `RequestCode` remain pinned to v1
+  for compatibility; the CLI keeps `-v2` as a no-op and adds `-v1` to opt back
+  into the drift-prone all-components scheme.
+- **Signing enforces static validity.** `Signer.SignPayload` now runs
+  `ValidatePayloadStatic` before canonicalizing/signing (matching the
+  `BuildPayload` contract), so a structurally invalid payload can no longer be
+  signed through that path. `Issue(nil, req)` and `(*Signer)(nil).KeyID()` are
+  nil-safe instead of panicking.
+- **Device-binding cardinality is enforced.** `DeviceModeNone` must carry no
+  device IDs, `DeviceModeSingle` requires exactly one, and `DeviceModeMulti`
+  requires at least one; violations are rejected by static validation.
+- **Bounded CLI file reads.** `verify`, `inspect`, `issue`, `revoke-list`, and
+  public-key loading read through a shared `Stat` + `io.LimitReader` helper so an
+  oversized input is rejected before it is buffered, rather than being read in
+  full and only then size-checked by the parser.
+- **Anti-rollback state store hardening.** `RollbackStore` now shares the same
+  per-path mutex as `FileRevocationStateStore` (serializing writers to the same
+  file within a process), and its `atomicWriteFile` handles the parent-directory
+  fsync consistently with the rest of the codebase — returning the error on
+  POSIX (so "durable" is truthful) and skipping it on Windows. The
+  single-process-writer limitation is now documented.
 
 ### Added
 
@@ -73,7 +98,16 @@ below before upgrading.
   a real release run).
 - Single source of truth for quality metrics: `scripts/generate-quality-docs.sh`
   regenerates the coverage blocks of `docs/*/quality.md` from
-  `.github/go-test-report.json`.
+  `.github/go-test-report.json`. The JSON now also carries an `environment`
+  block (commit, generation time, Go version, OS/arch), stamped in CI by
+  `scripts/inject-report-environment.sh`, so the "environment of record" shown
+  in `quality.md` is generated from that JSON instead of being hand-maintained.
+- The Go Report Card Markdown report (`.github/goreportcard-report.md`) is now
+  regenerated alongside the badge by the `goreportcard` workflow (via the
+  action's `report` output) and committed through the same restricted
+  write-back allowlist, so the report the README links to can no longer drift
+  from the current code (previously it was a hand-maintained snapshot that still
+  listed already-refactored complexity warnings).
 
 ### Changed
 
@@ -187,6 +221,8 @@ protocol upgrade** — they are not wire-compatible with pre-upgrade artifacts:
 - **Keyed fingerprint prefix changed** from `sha256:` to `hmac-sha256:`; update
   any stored comparisons. Fingerprint v1 output is unchanged — adopt v2 only
   when you want the per-platform primary identifier.
+
+## [0.1.0] - 2026-08-21
 
 Initial public release of `grantseal`, an **offline software licensing** system
 written in Go 1.26 using **only the standard library**.

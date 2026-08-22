@@ -16,18 +16,24 @@ func cmdFingerprint(args []string, stdout, stderr io.Writer) error {
 	ns := fs.String("namespace", "", "product namespace (required)")
 	jsonOut := fs.Bool("json", false, "print full fingerprint JSON")
 	code := fs.Bool("request-code", false, "print the human-friendly request code")
-	useV2 := fs.Bool("v2", false, "use the v2 per-platform primary-identifier scheme")
+	useV1 := fs.Bool("v1", false, "use the legacy v1 all-components scheme (default is the drift-resistant v2 scheme)")
+	useV2 := fs.Bool("v2", false, "deprecated no-op: v2 is now the default (kept for backward compatibility)")
 	if err := parseFlags(fs, args); err != nil {
 		return err
 	}
 	if *ns == "" {
 		return usageErrorf("fingerprint: -namespace is required")
 	}
-	compute := fingerprint.Compute
-	requestCode := fingerprint.RequestCode
-	if *useV2 {
-		compute = fingerprint.ComputeV2
-		requestCode = fingerprint.RequestCodeV2
+	if *useV1 && *useV2 {
+		return usageErrorf("fingerprint: -v1 and -v2 are mutually exclusive")
+	}
+	// Default to the drift-resistant v2 scheme; -v1 opts back into the legacy
+	// all-components scheme. -v2 is retained as a no-op for compatibility.
+	compute := fingerprint.ComputeDefault
+	requestCode := fingerprint.RequestCodeDefault
+	if *useV1 {
+		compute = fingerprint.Compute
+		requestCode = fingerprint.RequestCode
 	}
 	fp, err := compute(*ns)
 	if err != nil {

@@ -277,8 +277,24 @@ func (p *Payload) validateEnums() error {
 	if !p.DeviceBinding.Mode.Valid() {
 		return newError(CodeInvalidEnum, fmt.Sprintf("unknown device mode %q", p.DeviceBinding.Mode), nil)
 	}
-	if p.DeviceBinding.Mode != DeviceModeNone && len(p.DeviceBinding.DeviceIDs) == 0 {
-		return newError(CodeMalformed, "device binding requires at least one device_id", nil)
+	// Device-binding cardinality per mode. Making the shape explicit prevents a
+	// license from carrying a device_id set that contradicts its mode (e.g. a
+	// "none" license that still ships device_ids, or a "single" license bound
+	// to several devices).
+	n := len(p.DeviceBinding.DeviceIDs)
+	switch p.DeviceBinding.Mode {
+	case DeviceModeNone:
+		if n != 0 {
+			return newError(CodeMalformed, "device mode none must not carry device_ids", nil)
+		}
+	case DeviceModeSingle:
+		if n != 1 {
+			return newError(CodeMalformed, fmt.Sprintf("device mode single requires exactly one device_id (got %d)", n), nil)
+		}
+	case DeviceModeMulti:
+		if n == 0 {
+			return newError(CodeMalformed, "device mode multi requires at least one device_id", nil)
+		}
 	}
 	return nil
 }

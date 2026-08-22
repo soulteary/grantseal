@@ -338,10 +338,12 @@ func (m *Manager) InvalidateCache() {
 }
 
 // GetDeviceRequestCode computes this device's human-friendly application/request
-// code for the given product namespace, delegating to pkg/fingerprint. It is a
-// convenience so callers can surface an activation code without importing the
-// fingerprint package directly. It returns fingerprint.ErrInsufficientInfo when
-// no stable hardware identifier is available.
+// code for the given product namespace, delegating to pkg/fingerprint. It uses
+// the recommended default fingerprint scheme (v2), which is resilient to
+// secondary hardware components appearing or disappearing. It is a convenience
+// so callers can surface an activation code without importing the fingerprint
+// package directly. It returns fingerprint.ErrInsufficientInfo when no stable
+// hardware identifier is available.
 func (m *Manager) GetDeviceRequestCode(productNamespace string) (string, error) {
-	return fingerprint.RequestCode(productNamespace)
+	return fingerprint.RequestCodeDefault(productNamespace)
 }

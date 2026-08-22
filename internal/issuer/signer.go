@@ -27,14 +27,22 @@ func NewSigner(keyID string, priv ed25519.PrivateKey) (*Signer, error) {
 
 // SignPayload canonicalizes and signs a license payload, returning an envelope.
 // It sets payload.KeyID to the signer's key_id and payload.SchemaVersion to the
-// supported version before signing, so the signed bytes are self-consistent.
+// supported version, then runs full static validation (ValidatePayloadStatic)
+// before signing so a structurally invalid license can never be signed via this
+// path. This matches BuildPayload's contract that full validation runs here.
 func (s *Signer) SignPayload(p *license.Payload) (*license.Envelope, error) {
+	if s == nil {
+		return nil, fmt.Errorf("issuer: nil signer")
+	}
 	if p == nil {
 		return nil, fmt.Errorf("issuer: nil payload")
 	}
 	p.KeyID = s.keyID
 	if p.SchemaVersion == 0 {
 		p.SchemaVersion = license.SchemaVersion
+	}
+	if err := license.ValidatePayloadStatic(p); err != nil {
+		return nil, fmt.Errorf("issuer: invalid license: %w", err)
 	}
 	canonical, err := license.CanonicalBytes(p)
 	if err != nil {
@@ -66,5 +74,10 @@ func SignRevocationBytes(s *Signer, payloadBytes []byte) []byte {
 	return ed25519.Sign(s.priv, license.RevocationSigningInput(payloadBytes))
 }
 
-// KeyID returns the signer's key id.
-func (s *Signer) KeyID() string { return s.keyID }
+// KeyID returns the signer's key id, or "" for a nil signer.
+func (s *Signer) KeyID() string {
+	if s == nil {
+		return ""
+	}
+	return s.keyID
+}

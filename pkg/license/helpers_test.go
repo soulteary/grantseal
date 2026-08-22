@@ -78,12 +78,21 @@ func issueBytes(t *testing.T, s *issuer.Signer, req issuer.IssueRequest) []byte 
 	return data
 }
 
-// signRaw signs a caller-provided payload WITHOUT running BuildPayload's static
-// validation, so tests can craft deliberately invalid payloads (bad schema,
-// unknown enum) that still carry a valid signature.
+// signRaw signs a caller-provided payload WITHOUT running the static validation
+// that Signer.SignPayload now enforces, so tests can craft deliberately invalid
+// payloads (bad schema, unknown enum, missing fields) that still carry a valid
+// signature to exercise the client's rejection paths. It canonicalizes the
+// payload as-is and signs those bytes with the license signing domain, so the
+// only difference from SignPayload is the skipped validation. Callers must
+// stamp key_id / schema_version on the payload themselves.
 func signRaw(t *testing.T, s *issuer.Signer, p *license.Payload) (*license.Envelope, error) {
 	t.Helper()
-	return s.SignPayload(p)
+	canonical, err := license.CanonicalBytes(p)
+	if err != nil {
+		return nil, err
+	}
+	sig := issuer.SignLicenseBytes(s, canonical)
+	return license.NewEnvelope(license.AlgorithmEd25519, p.KeyID, canonical, sig), nil
 }
 
 // buildRevocation signs a v2 revocation list for the given license IDs, valid

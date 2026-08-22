@@ -4,7 +4,6 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"os"
 	"strings"
 
 	"github.com/soulteary/grantseal/pkg/license"
@@ -40,9 +39,9 @@ func cmdVerify(args []string, stdout, stderr io.Writer) error {
 	}
 
 	// Determine the key_id: use the flag, else read it from the license envelope.
-	licData, err := os.ReadFile(*licPath)
+	licData, err := readFileBounded(*licPath, "license", license.MaxLicenseFileSize)
 	if err != nil {
-		return fmt.Errorf("verify: read license: %w", err)
+		return fmt.Errorf("verify: %w", err)
 	}
 	kid := *keyID
 	if kid == "" {
@@ -70,9 +69,9 @@ func cmdVerify(args []string, stdout, stderr io.Writer) error {
 		DeviceFingerprint: *device,
 	}
 	if *revPath != "" {
-		revData, rerr := os.ReadFile(*revPath)
+		revData, rerr := readFileBounded(*revPath, "revocation", license.MaxRevocationFileSize)
 		if rerr != nil {
-			return fmt.Errorf("verify: read revocation: %w", rerr)
+			return fmt.Errorf("verify: %w", rerr)
 		}
 		rp, rerr := license.LoadRevocationList(ring, revData, timeNow())
 		if rerr != nil {

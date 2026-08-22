@@ -81,7 +81,7 @@ func TestMissingRequiredFields(t *testing.T) {
 		LicenseType:   license.LicenseTypeSubscription,
 		DeviceBinding: license.DeviceBinding{Mode: license.DeviceModeNone},
 	}
-	env, err := s.SignPayload(p)
+	env, err := signRaw(t, s, p)
 	if err != nil {
 		t.Fatal(err)
 	}

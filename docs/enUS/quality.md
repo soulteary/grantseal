@@ -4,26 +4,30 @@
 
 Related docs: [README](./README.md) · [architecture](./architecture.md) · [performance](./performance.md) · [security](../../SECURITY.md)
 
-> **Note.** The coverage figures in the generated block below come from
+> **Note.** The environment of record and coverage figures in the generated
+> block below both come from
 > [`.github/go-test-report.json`](../../.github/go-test-report.json), the single
 > machine-readable source of truth, via `scripts/generate-quality-docs.sh`. The
 > surrounding prose is maintained by hand.
 
-## Environment of record
-
-- Date (UTC): 2026-08-21
-- Go version: `go1.26.6`
-- OS / arch: `darwin/arm64`
-- Command: `go test ./... -covermode=atomic -coverprofile=coverage.out && go tool cover -func=coverage.out`
-
-The exact commit and machine numbers are recorded in the single source of truth,
-[`.github/go-test-report.json`](../../.github/go-test-report.json), which the
-coverage workflow regenerates and commits. The coverage figures below are
-generated from that JSON by `scripts/generate-quality-docs.sh`; do not edit them
-by hand (CI runs the generator and fails on any diff).
+The environment of record (commit, generated time, Go version, OS/arch) and the
+coverage figures both come from that JSON's `environment` and `coverage` blocks,
+which the coverage workflow regenerates and commits, so they cannot drift from
+the measured run. Do not edit the generated block by hand (CI runs the generator
+and fails on any diff). Test command:
+`go test ./cmd/... ./internal/... ./pkg/... -covermode=atomic -coverprofile=coverage.out`.
 
 <!-- BEGIN:GENERATED-COVERAGE -->
 <!-- Generated from .github/go-test-report.json by scripts/generate-quality-docs.sh. Do not edit by hand. -->
+
+## Environment of record
+
+- Commit: `69dcdc471635b2124950921fd258db2af12822c4`
+- Generated (UTC): `2026-08-22T00:00:00Z`
+- Go version: `go1.26.6`
+- OS / arch: `darwin/arm64`
+
+These values come from the `environment` block of `.github/go-test-report.json`, the single machine-readable source of truth, so they cannot drift from the recorded run.
 
 ## Total coverage
 

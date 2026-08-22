@@ -87,6 +87,9 @@ func BuildPayload(req IssueRequest) (*license.Payload, error) {
 // full static validation (with the signer's key_id stamped) so issuers cannot
 // mint structurally invalid licenses via this path.
 func Issue(s *Signer, req IssueRequest) (*license.Envelope, error) {
+	if s == nil {
+		return nil, fmt.Errorf("issuer: nil signer")
+	}
 	p, err := BuildPayload(req)
 	if err != nil {
 		return nil, err

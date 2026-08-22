@@ -17,25 +17,37 @@ import (
 	"strings"
 )
 
-// FingerprintVersion is the current version of the default (v1) fingerprint
-// scheme. It is embedded in the produced Fingerprint so that consumers can
-// detect changes to the hashing/normalization algorithm.
+// FingerprintVersion is the version tag embedded by the v1 fingerprint scheme
+// (ComputeHMAC). It is embedded in the produced Fingerprint so that consumers
+// can detect which hashing/normalization algorithm produced a value.
 //
 // v1 semantics: strict "all collected components" — every stable identifier the
 // platform exposes contributes to the canonical form, so adding or losing any
-// one component changes the fingerprint. Use ComputeV2 for the more forgiving
-// per-platform primary-identifier scheme.
+// one component changes the fingerprint. v1 is retained for compatibility; new
+// code should prefer the default (v2) scheme (see ComputeDefault) or call
+// ComputeV2 explicitly.
 const FingerprintVersion = 1
 
-// FingerprintVersionV2 is the version tag embedded by ComputeV2/ComputeHMACV2.
+// FingerprintVersionV2 is the version tag embedded by ComputeV2/ComputeHMACV2
+// and by the version-agnostic default entry points (ComputeDefault,
+// ComputeHMACDefault, RequestCodeDefault).
 //
 // v2 semantics: a single per-platform PRIMARY identifier is selected by a fixed
 // priority order (Linux machine-id, macOS platform_uuid, Windows MachineGUID,
 // with documented fallbacks), and obvious placeholder values (all-zero UUIDs,
 // "none"/"default"/"to be filled by o.e.m.", etc.) are filtered out. This makes
 // the fingerprint resilient to secondary components appearing or disappearing
-// while still failing closed when no usable primary identifier exists.
+// while still failing closed when no usable primary identifier exists. This is
+// the recommended default for new integrations because it does not drift when
+// unrelated hardware components are added or removed.
 const FingerprintVersionV2 = 2
+
+// DefaultFingerprintVersion is the fingerprint scheme new integrations get from
+// the version-agnostic entry points (ComputeDefault/RequestCodeDefault). It is
+// v2 because that scheme is resilient to secondary hardware components
+// appearing or disappearing. The explicit Compute/ComputeV2 helpers still pin a
+// specific version for callers that need a stable, versioned choice.
+const DefaultFingerprintVersion = FingerprintVersionV2
 
 // Category constants identify the class of a hardware identifier. Only these
 // category names are ever exposed; the underlying raw values are kept private.
@@ -238,11 +250,32 @@ func primaryComponent(components []Component, priority []string) (Component, boo
 	return chosen, true
 }
 
-// Compute builds a stable device fingerprint scoped to productNamespace using
-// plain SHA-256. It returns ErrEmptyNamespace for an empty namespace and
+// Compute builds a stable v1 device fingerprint scoped to productNamespace
+// using plain SHA-256. It returns ErrEmptyNamespace for an empty namespace and
 // ErrInsufficientInfo when no usable hardware identifier is available.
+//
+// Compute pins the v1 "all collected components" scheme for callers that need a
+// specific, stable version. New integrations should prefer ComputeDefault,
+// which uses the drift-resistant v2 scheme.
 func Compute(productNamespace string) (Fingerprint, error) {
 	return ComputeHMAC(productNamespace, nil)
+}
+
+// ComputeDefault builds a device fingerprint using the recommended default
+// scheme (v2; see DefaultFingerprintVersion) scoped to productNamespace with
+// plain SHA-256. It is the version-agnostic entry point new code should use so
+// the default can evolve without touching call sites. It returns
+// ErrEmptyNamespace for an empty namespace and ErrInsufficientInfo when no
+// usable, non-placeholder primary identifier is available.
+func ComputeDefault(productNamespace string) (Fingerprint, error) {
+	return ComputeV2(productNamespace)
+}
+
+// ComputeHMACDefault is the keyed counterpart of ComputeDefault: it derives the
+// fingerprint using the recommended default scheme (v2), keyed with hmacKey
+// when len(hmacKey) > 0 and plain SHA-256 otherwise.
+func ComputeHMACDefault(productNamespace string, hmacKey []byte) (Fingerprint, error) {
+	return ComputeHMACV2(productNamespace, hmacKey)
 }
 
 // ComputeHMAC behaves like Compute but, when len(hmacKey) > 0, derives the
@@ -356,12 +389,24 @@ func requestCodeFromFingerprint(fp Fingerprint) string {
 // human-friendly, uppercase, dash-grouped application/request code derived from
 // the fingerprint hash. The result is deterministic for a given namespace and
 // device, and is tagged with the fingerprint scheme version (e.g. "V1-...").
+//
+// RequestCode pins the v1 scheme. New integrations should prefer
+// RequestCodeDefault, which uses the drift-resistant v2 scheme.
 func RequestCode(productNamespace string) (string, error) {
 	fp, err := Compute(productNamespace)
 	if err != nil {
 		return "", err
 	}
 	return requestCodeFromFingerprint(fp), nil
+}
+
+// RequestCodeDefault is the version-agnostic request-code entry point. It
+// derives the code from the recommended default fingerprint scheme (v2; see
+// DefaultFingerprintVersion) and tags it with that version prefix (e.g.
+// "V2-..."). New code should call this so the default can evolve without
+// touching call sites.
+func RequestCodeDefault(productNamespace string) (string, error) {
+	return RequestCodeV2(productNamespace)
 }
 
 // RequestCodeV2 is the v2 counterpart of RequestCode: it derives the request
