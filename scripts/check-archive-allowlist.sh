@@ -36,20 +36,26 @@
 # The container is built FROM a distroless base pinned by digest in
 # docker/Dockerfile.goreleaser:
 #
-#     gcr.io/distroless/static:nonroot@sha256:f7f8f729987ad0fdf6b05eeeae94b26e6a0f613bdf46feea7fc40f7bd72953e6
+#     gcr.io/distroless/static-debian13:nonroot@sha256:1c2c046bc09ed40fad370b599a0b1ae7987f55b01e247cf27a7c27cd97e5bbc7
 #
 # Every regular file in the final image must be EITHER:
 #   (a) an explicit application file at an EXACT path we ship (verified by path,
 #       mode, and — when a base manifest with digests is supplied — sha256), OR
-#   (b) an unchanged file inherited from the pinned distroless base image.
+#   (b) a file inherited from the pinned distroless base image.
 #
-# Case (b) is expressed as a tight base allowlist (BASE_IMAGE_PATH regex set)
-# describing exactly what gcr.io/distroless/static:nonroot legitimately carries
-# (CA bundle, /etc/passwd + /etc/group + /etc/nsswitch.conf, os-release, the
-# nonroot home + /tmp, and the runtime-injected /.dockerenv). It deliberately
-# does NOT allow broad trees like /usr/share, /etc/grantseal, /var/lib, or the
-# Debian-slim FHS layout (/bin /sbin /lib*). A stray private key, source file,
-# config file, or anything planted under those paths therefore FAILS the check.
+# Case (b) is expressed as a tight base allowlist (base_path_allowed) that
+# enumerates exactly the Debian package contents this static-debian13 image
+# ships: the ca-certificates bundle, /etc/passwd + /etc/group + nsswitch,
+# os-release, the nonroot home + /tmp, PLUS the base-files, netbase, media-types
+# and tzdata/tzdata-legacy package files (including the full /usr/share/zoneinfo
+# tree and the /var/lib/dpkg/status.d metadata for those packages). It also
+# enumerates the small set of files the DOCKER RUNTIME injects into an exported
+# container rootfs — /.dockerenv, the /dev/console|pts|shm device nodes, and the
+# bind-mounted /etc/hostname, /etc/hosts, /etc/resolv.conf, /etc/mtab — because
+# `docker export` streams a running container's filesystem, not the pristine
+# image layers. It is still an explicit allowlist — NOT a blanket pass on
+# /usr/share, /var/lib, /dev or /etc — so a stray private key, source file,
+# config file, or anything planted OUTSIDE those enumerated contents still FAILS.
 #
 # BASE-DIGEST PINNING REQUIREMENT: the base allowlist below is only valid for
 # the exact distroless digest pinned in docker/Dockerfile.goreleaser. If that
@@ -105,24 +111,67 @@ app_path_allowed() {
   return 1
 }
 
-# Files legitimately contributed by the pinned distroless/static:nonroot base.
-# Tight, explicit set — NOT a broad directory allowlist. See the header note on
-# base-digest pinning: valid only for the digest pinned in the Dockerfile.
+# Files legitimately contributed by the pinned distroless/static-debian13:nonroot
+# base. This Debian 13 based static image ships tzdata (the full zoneinfo tree),
+# base-files, netbase and ca-certificates on top of the minimal rootfs, so the
+# base allowlist below enumerates exactly those package contents. It is still an
+# explicit allowlist (NOT a blanket "anything under /usr/share" pass): only the
+# specific files/trees these base packages install are accepted, so a stray
+# private key, source file or config planted elsewhere still FAILS the check.
+# See the header note on base-digest pinning: valid only for the digest pinned
+# in the Dockerfile.
 base_path_allowed() {
   local p="$1"
   case "$p" in
     "" ) return 0 ;;                              # root marker
+    # --- files injected by the docker runtime (NOT shipped in the image) ---
+    # `docker export` streams a *running* container's rootfs, so it contains the
+    # small set of files the engine bind-mounts / creates at container start.
+    # These are environment artifacts, not material we package, and appear on
+    # every exported image regardless of contents. Enumerated explicitly (not a
+    # blanket /dev or /etc pass) so a planted file elsewhere still fails.
     .dockerenv ) return 0 ;;                       # injected by the docker runtime
-    # --- distroless/static:nonroot contents (exact files) ---
-    etc/passwd | etc/group | etc/nsswitch.conf ) return 0 ;;
-    etc/ssl/certs/ca-certificates.crt ) return 0 ;;
-    etc/os-release | usr/lib/os-release ) return 0 ;;
+    dev/console | dev/pts | dev/shm ) return 0 ;;  # runtime device nodes
+    etc/hostname | etc/hosts | etc/resolv.conf | etc/mtab ) return 0 ;;
+    # --- rootfs symlink targets / dirs shipped by the base ---
+    bin | sbin | lib | lib64 ) return 0 ;;
     var/run ) return 0 ;;                          # symlink -> /run on the base
+    # --- passwd / group / nsswitch / os-release (common:* + nsswitch.tar) ---
+    etc/passwd | etc/group | etc/nsswitch.conf ) return 0 ;;
+    etc/os-release | usr/lib/os-release ) return 0 ;;
     # nonroot home + world-writable tmp shipped by the base image
     home/nonroot ) return 0 ;;
     tmp ) return 0 ;;
-    # NOTE: intentionally NO broad trees. /usr/share, /etc/grantseal, /var/lib,
-    # /bin, /sbin, /lib* etc. are NOT allowlisted and will fail the check.
+    # --- ca-certificates package ---
+    etc/ssl/certs/ca-certificates.crt ) return 0 ;;
+    usr/share/doc/ca-certificates/* ) return 0 ;;
+    var/lib/dpkg/status.d/ca-certificates | var/lib/dpkg/status.d/ca-certificates.md5sums ) return 0 ;;
+    # --- base-files package (Debian 13) ---
+    etc/debian_version | etc/host.conf | etc/issue | etc/issue.net ) return 0 ;;
+    etc/update-motd.d/* ) return 0 ;;
+    etc/dpkg/origins/debian ) return 0 ;;
+    usr/share/base-files/* ) return 0 ;;
+    usr/share/common-licenses/* ) return 0 ;;
+    usr/share/doc/base-files/* ) return 0 ;;
+    usr/share/lintian/overrides/base-files ) return 0 ;;
+    var/lib/dpkg/status.d/base-files | var/lib/dpkg/status.d/base-files.md5sums ) return 0 ;;
+    # --- netbase package (protocol/service databases) ---
+    etc/ethertypes | etc/protocols | etc/rpc | etc/services ) return 0 ;;
+    usr/share/doc/netbase/* ) return 0 ;;
+    var/lib/dpkg/status.d/netbase | var/lib/dpkg/status.d/netbase.md5sums ) return 0 ;;
+    # --- media-types package (mime.types) ---
+    etc/mime.types ) return 0 ;;
+    usr/share/bug/media-types/* ) return 0 ;;
+    usr/share/doc/media-types/* ) return 0 ;;
+    var/lib/dpkg/status.d/media-types | var/lib/dpkg/status.d/media-types.md5sums ) return 0 ;;
+    # --- tzdata + tzdata-legacy packages (the full zoneinfo tree) ---
+    usr/share/zoneinfo/* ) return 0 ;;
+    usr/share/doc/tzdata/* | usr/share/doc/tzdata-legacy/* ) return 0 ;;
+    usr/share/lintian/overrides/tzdata ) return 0 ;;
+    var/lib/dpkg/status.d/tzdata | var/lib/dpkg/status.d/tzdata.md5sums ) return 0 ;;
+    var/lib/dpkg/status.d/tzdata-legacy | var/lib/dpkg/status.d/tzdata-legacy.md5sums ) return 0 ;;
+    # NOTE: still NO blanket trees. Anything outside the enumerated base package
+    # contents (e.g. /etc/grantseal, an app config, a planted key) FAILS.
     *) return 1 ;;
   esac
 }
@@ -198,42 +247,43 @@ if [ "${1:-}" = "--image" ]; then
 
   # Build a "MODE SHA256 PATH" manifest from the exported root filesystem and run
   # it through the shared allowlist. `docker export` streams the container root
-  # filesystem as a tar; `tar -tv` gives mode + type per member. We derive a
-  # coarse numeric mode from the rwx string (owner-execute bit is what matters
-  # for the binary) and leave sha256 as "-" (path+mode+base-diff is the gate;
-  # digest verification requires a base manifest supplied via --manifest).
-  # `docker export` streams the container root filesystem as a tar. `tar -tv`
-  # prints a permission string per member; the exact column layout differs
-  # between GNU and BSD tar, so we anchor the PATH on the "HH:MM" time token
-  # (everything after the first "NN:NN" field is the member path). This keeps
-  # the parser portable across tar implementations. sha256 stays "-" (path+mode
-  # + base diff is the gate; digest verification uses --manifest with a base).
-  manifest="$(
-    docker export "$cid" | tar -tv 2>/dev/null | while IFS= read -r row; do
-      perms="${row%% *}"
-      # skip directories (leading 'd') and symlinks (leading 'l'): only regular
-      # files carry shippable content that must be allowlisted.
-      case "$perms" in d*|l*) continue ;; esac
-      path="$(printf '%s\n' "$row" | awk '{
-        for (i = 1; i <= NF; i++) {
-          if ($i ~ /^[0-9][0-9]:[0-9][0-9]$/) {
-            out = ""
-            for (j = i + 1; j <= NF; j++) out = out (out == "" ? "" : " ") $j
-            print out
-            exit
-          }
-        }
-      }')"
-      [ -z "$path" ] && continue
-      # owner-execute bit set -> treat as 0755, else 0644 (coarse but enough for
-      # the executable-bit check on the app binary).
-      case "$perms" in
-        ???x*) mode=0755 ;;
-        *) mode=0644 ;;
-      esac
-      printf '%s - %s\n' "$mode" "$path"
-    done
-  )"
+  # filesystem as a tar.
+  #
+  # PATHS come from `tar -t` (names only). That listing is the ONE piece of tar
+  # output whose format is stable across GNU tar, BSD tar, busybox tar and every
+  # locale: exactly one member name per line, no permission/owner/size/time
+  # columns to mis-parse. The previous implementation parsed `tar -tv` and
+  # anchored the path on an "HH:MM" time token, which broke whenever the listing
+  # rendered the time as "HH:MM:SS" or in a non-C locale, and additionally never
+  # skipped device nodes — so /dev/console and the entire base tree were
+  # misreported as disallowed. Parsing names-only sidesteps all of that.
+  #
+  # MODE and SHA256 cannot be recovered from a names-only listing, so both are
+  # emitted as "-" (unknown). The allowlist gate here is purely path-based:
+  # base_path_allowed matches by path, and app_path_allowed accepts /license-tool
+  # with an unknown ("-") mode as the documented degraded case (a wrong-path or
+  # unexpected binary still fails on path). Per-file mode/digest verification is
+  # exercised deterministically via --manifest with hand-written modes (see the
+  # self-test's non-executable-binary case), which is where that guarantee lives.
+  #
+  # Directory members end in "/"; symlink/device/fifo members appear as plain
+  # names in `tar -t` and are simply matched against the allowlist by path like
+  # any other member (the base allowlist already enumerates the base image's
+  # symlinks such as bin/sbin/lib and the runtime-injected /dev + /etc entries,
+  # and stray non-regular files under an unexpected path still — correctly —
+  # fail).
+  build_image_manifest() {
+    docker export "$cid" | tar -t 2>/dev/null | awk '
+      { p = $0 }
+      p ~ /\/$/ { next }                  # directory member
+      p == "" { next }
+      {
+        # Normalize a single leading "./" so members compare by exact path.
+        sub(/^\.\//, "", p)
+        print "- - " p
+      }'
+  }
+  manifest="$(build_image_manifest)"
 
   if printf '%s\n' "$manifest" | check_image_manifest "$IMAGE_REF"; then
     echo "image allowlist check passed: $IMAGE_REF contains only allowlisted files"

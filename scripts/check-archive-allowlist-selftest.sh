@@ -18,7 +18,8 @@
 #
 # Image-mode cases (synthetic "MODE SHA256 PATH" manifests, no docker needed —
 # runs the SAME allowlist logic via --manifest):
-#   I0. Clean manifest (base files + /license-tool + LICENSE) -> PASS
+#   I0. Clean manifest (static-debian13 base files + runtime-injected
+#       dev/console + etc/hostname|hosts|resolv.conf + /license-tool + LICENSE) -> PASS
 #   I1. Manifest with /usr/share/grantseal/private.key        -> FAIL
 #   I2. Manifest with /etc/grantseal/config.json              -> FAIL
 #   I3. Manifest with /var/lib/grantseal/source.go            -> FAIL
@@ -26,6 +27,9 @@
 #   I5. Manifest with license-tool present but non-executable -> FAIL
 #   I6. Manifest planting license-tool at /usr/bin/license-tool
 #       (right basename, wrong path)                          -> FAIL
+#   I7. Manifest with an unknown /var/lib/dpkg/status.d entry  -> FAIL
+#   I8. Manifest with a stray file under an unknown /usr/share -> FAIL
+#   I9. Manifest with an unknown /dev node (not the injected set) -> FAIL
 #
 # Exit codes:
 #   0  every planted case failed AND every clean case passed (checker is working)
@@ -109,8 +113,10 @@ assert_fail "archive containing config.json" -- bash "$CHECKER" "$d"
 # ---------------------------------------------------------------------------
 # Image mode: synthetic manifests fed through the shared allowlist logic.
 # ---------------------------------------------------------------------------
-# A minimal but representative clean distroless manifest, matching what
-# base_path_allowed() permits, plus the shipped application files.
+# A representative clean distroless static-debian13 manifest, matching what
+# base_path_allowed() permits, plus the shipped application files. Includes a
+# sampling of the tzdata / base-files / netbase / media-types package contents
+# so the self-test asserts the widened base allowlist accepts real base files.
 clean_base_manifest() {
   cat <<'EOF'
 0644 - etc/passwd
@@ -118,9 +124,27 @@ clean_base_manifest() {
 0644 - etc/nsswitch.conf
 0644 - etc/ssl/certs/ca-certificates.crt
 0644 - etc/os-release
+0644 - usr/lib/os-release
 0755 - home/nonroot
 0777 - tmp
 0644 - .dockerenv
+0755 - dev/console
+0644 - etc/hostname
+0644 - etc/hosts
+0644 - etc/resolv.conf
+0644 - etc/debian_version
+0644 - etc/protocols
+0644 - etc/services
+0644 - etc/mime.types
+0644 - usr/share/base-files/profile
+0644 - usr/share/common-licenses/Apache-2.0
+0644 - usr/share/doc/base-files/copyright
+0644 - usr/share/doc/netbase/copyright
+0644 - usr/share/zoneinfo/Asia/Shanghai
+0644 - usr/share/zoneinfo/right/Etc/UTC
+0644 - usr/share/lintian/overrides/tzdata
+0644 - var/lib/dpkg/status.d/tzdata
+0644 - var/lib/dpkg/status.d/base-files.md5sums
 EOF
 }
 
@@ -170,6 +194,24 @@ assert_fail "manifest with non-executable license-tool" -- bash "$CHECKER" --man
 # I6: license-tool basename at a wrong path -> FAIL (exact-path allowlist)
 f="$(printf '0755 - usr/bin/license-tool\n' | mk_manifest wrong-path-binary)"
 assert_fail "manifest with license-tool at /usr/bin (wrong path)" -- bash "$CHECKER" --manifest "$f"
+
+# I7: an UNKNOWN dpkg status.d entry (not one of the pinned base packages) ->
+# FAIL. Proves the widened base allowlist enumerates specific package metadata
+# rather than blanket-allowing all of /var/lib/dpkg/status.d.
+f="$(printf '0644 - var/lib/dpkg/status.d/openssl\n' | mk_manifest unknown-dpkg-pkg)"
+assert_fail "manifest with unknown /var/lib/dpkg/status.d/openssl" -- bash "$CHECKER" --manifest "$f"
+
+# I8: a stray file under an UNKNOWN /usr/share subtree -> FAIL. Proves we did not
+# blanket-allow /usr/share when widening for base-files/tzdata/etc.
+f="$(printf '0644 - usr/share/grantseal/notes.txt\n' | mk_manifest unknown-usr-share)"
+assert_fail "manifest with stray /usr/share/grantseal/notes.txt" -- bash "$CHECKER" --manifest "$f"
+
+# I9: an UNKNOWN /dev node -> FAIL. The runtime-injected set (dev/console, plus
+# the etc/hostname etc/hosts etc/resolv.conf files docker bind-mounts) is
+# enumerated explicitly and lives in the clean base manifest above; this proves
+# we did NOT blanket-allow /dev when accepting those runtime artifacts.
+f="$(printf '0666 - dev/full\n' | mk_manifest unknown-dev-node)"
+assert_fail "manifest with unknown /dev/full node" -- bash "$CHECKER" --manifest "$f"
 
 echo "archive/image allowlist self-test passed: planted material rejected, clean artifacts accepted"
 exit 0
