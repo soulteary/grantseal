@@ -31,7 +31,15 @@ type rollbackMACInput struct {
 
 // RollbackStore persists and integrity-checks RollbackState on disk. The HMAC
 // key should be derived from a built-in secret combined with a device
-// fingerprint so the state cannot be trivially forged or transplanted.
+// fingerprint so the state cannot be transplanted between machines.
+//
+// SCOPE: the HMAC tag is TAMPER-EVIDENT against ordinary file modification, not
+// secure local secret storage. The built-in secret ships inside the client
+// binary, so a local high-privilege attacker who reverse-engineers the binary
+// can recover the secret, combine it with the device fingerprint, and forge a
+// valid tag. Binding to a device fingerprint prevents casual transplant/replay
+// of a state file between machines; it does NOT make the tag cryptographically
+// impossible to forge. That adversary is out of scope (see SECURITY).
 //
 // SINGLE-PROCESS WRITER: it is safe for concurrent use within a single process
 // — every load/check/save sequence is serialized under a shared per-path mutex
@@ -197,10 +205,15 @@ func (s *RollbackStore) CheckAndSave(now time.Time) error {
 // fingerprint string, binding the local state to both.
 //
 // SECURITY: passing an empty fingerprint produces a key that depends only on
-// the built-in secret. Such a key is portable across machines and can be
-// forged or transplanted between devices, defeating the point of binding the
-// anti-rollback state to a device. Production callers should use
+// the built-in secret. Such a key is portable across machines, so a state file
+// can be transplanted or replayed between devices, defeating the point of
+// binding the anti-rollback state to a device. Production callers should use
 // DeriveRollbackKeyStrict, or always pass a non-empty device fingerprint here.
+//
+// Note this is tamper-evidence, not secret storage: the built-in secret is
+// recoverable from the client binary, so a device fingerprint does not make the
+// resulting tag impossible to forge for an attacker who controls the machine —
+// it only prevents portable, cross-machine reuse (see SECURITY).
 func DeriveRollbackKey(builtinSecret []byte, fingerprint string) []byte {
 	mac := hmac.New(sha256.New, builtinSecret)
 	mac.Write([]byte("grantseal:rollback:v1"))
@@ -210,9 +223,10 @@ func DeriveRollbackKey(builtinSecret []byte, fingerprint string) []byte {
 
 // DeriveRollbackKeyStrict behaves like DeriveRollbackKey but refuses to derive
 // a key from an empty fingerprint. Requiring a device fingerprint prevents a
-// portable, secret-only key that could be transplanted or forged across
-// machines. On success it returns the same key DeriveRollbackKey would for the
-// same inputs.
+// portable, secret-only key whose state file could be transplanted or replayed
+// across machines. It does not make the tag impossible to forge locally (the
+// built-in secret is recoverable from the binary — see SECURITY). On success it
+// returns the same key DeriveRollbackKey would for the same inputs.
 func DeriveRollbackKeyStrict(builtinSecret []byte, fingerprint string) ([]byte, error) {
 	if fingerprint == "" {
 		return nil, newError(CodeStateIntegrityFailure, "empty device fingerprint for rollback key", nil)

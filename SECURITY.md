@@ -25,7 +25,7 @@ protection against a privileged (root/admin) local adversary.
 | -------- | ------------ | -------------- | ----------- |
 | Private key material | Issuer machine (`internal/issuer` + CLI) | Everything shipped to customers | Go `internal/` (clients cannot import `internal/issuer`); CI scans the final release archives for key material and enforces an archive allowlist |
 | Signature verification | Embedded public key(s) in the client `KeyRing` | The license file, revocation list, and their transport | `pkg/license` Ed25519 verification over canonical bytes |
-| Anti-rollback state | HMAC key derived from a built-in secret + device fingerprint | The on-disk state file | HMAC-SHA256 tag checked with `subtle.ConstantTimeCompare` |
+| Anti-rollback state | HMAC key derived from a built-in secret + device fingerprint | The on-disk state file | HMAC-SHA256 tag checked with `subtle.ConstantTimeCompare` — **tamper-evident** against ordinary file edits, **not** secret storage (the built-in secret is recoverable from the binary; see [Clock & rollback limits](#clock--rollback-limits)) |
 | Time source | Caller-supplied clock / `TrustedTimeProvider` | The local system clock | Rollback high-water-mark heuristic (naive rollback only) |
 | Device identity | Hashed fingerprint categories | Raw hardware identifiers | `pkg/fingerprint` never exports or logs raw values |
 
@@ -216,6 +216,16 @@ must still come from the deployment (shape 1 or 3) or a cross-process backend
 - The HMAC key should be derived from a built-in secret **and** a device
   fingerprint (`DeriveRollbackKeyStrict`) so state cannot be transplanted
   between machines.
+- **Scope of the HMAC tag — tamper-evident, not tamper-proof.** The built-in
+  secret ships inside the client binary, so this mechanism is **tamper-evidence
+  against ordinary file modification** (an editor, a script, a copied state
+  file), **not** secure local secret storage. It is **not** cryptographically
+  impossible to forge: a local high-privilege attacker who reverse-engineers the
+  binary can recover the built-in secret, combine it with the device
+  fingerprint, and reconstruct the key to mint a valid tag. That adversary is
+  **out of scope** (see the binary-patching row above and the Goals section);
+  the tag exists to make casual, unprivileged tampering detectable, not to
+  defeat a determined local attacker.
 
 ## `inspect` is diagnostics, not authorization
 
