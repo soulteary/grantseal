@@ -37,6 +37,11 @@ grantseal 清晰地划分为**签发端**（持有私钥）与**客户端**（�
 
 ## 信封格式
 
+> v2 wire 格式的**规范性、已冻结**机器协议规格——规范化、信封/payload 语法、
+> 签名输入、域分隔符、Base64URL/时间戳/整数上限，以及冻结声明——见
+> [`protocol-v2.md`](./protocol-v2.md)。本节为摘要；当本节与 `protocol-v2.md`
+> 不一致时，以 `protocol-v2.md`（及 golden 测试）为准。
+
 磁盘上的许可是一段 JSON `Envelope`：
 
 ```json
@@ -58,7 +63,10 @@ grantseal 清晰地划分为**签发端**（持有私钥）与**客户端**（�
   并要求四个字段均非空。
 
 撤销列表使用相应的 `RevocationEnvelope`，包裹一个签名的
-`RevocationList{schema_version, issued_at, key_id, revoked_license_ids}`。
+`RevocationList{schema_version, list_id, sequence, issued_at, expires_at,
+key_id, revoked_license_ids}`。其当前 `schema_version` 为 `2`
+（`RevocationSchemaVersion`）；完整字段语法见
+[`protocol-v2.md`](./protocol-v2.md) 第 4.4 节。
 
 ### golden 向量不含私钥
 
@@ -81,7 +89,8 @@ grantseal 清晰地划分为**签发端**（持有私钥）与**客户端**（�
 3. 校验算法为 `Ed25519`。
 4. 在 `KeyRing` 中解析 `key_id`（须启用、未撤销、在有效期窗口内）。
 5. 对规范化 payload 字节验证 Ed25519 签名。
-6. 校验 payload 的 `key_id` 与信封 `key_id` 一致、schema 版本为 `1`。
+6. 校验 payload 的 `key_id` 与信封 `key_id` 一致、schema 版本为 `2`
+   （`LicenseSchemaVersion`）。
 7. **防回拨状态只在此处（即签名被证明为真之后）加载、校验并保存。** 这一顺序是刻意
    设计的：如果不受信输入能在验签之前加载/改动受信时间高水位线，伪造文件就可能污染回拨
    状态（例如把高水位线推前以逼出误报的 `LICENSE_CLOCK_ROLLBACK`，或将其重置）。先验签

@@ -11,6 +11,10 @@ import (
 // understands. Unknown schema versions are rejected (no silent downgrade).
 // v2 pairs with the grantseal/license/v2 signing domain: legacy v1 payloads
 // are rejected as CodeUnsupportedSchema (a breaking, one-time clean upgrade).
+//
+// FROZEN PROTOCOL CONSTANT: this is a wire-visible value. See the normative,
+// frozen v2 spec at docs/enUS/protocol-v2.md (docs/zhCN/protocol-v2.md).
+// Changing it is a breaking wire change requiring a MAJOR bump + migration.
 const LicenseSchemaVersion = 2
 
 // RevocationSchemaVersion is the current revocation-list schema version. v2 adds
@@ -69,6 +73,11 @@ const AlgorithmEd25519 Algorithm = "Ed25519"
 // breaking protocol change (a fresh signing domain), which is intentional: this
 // build performs a one-time clean upgrade and does not accept unprefixed
 // (pre-domain-separation) signatures.
+//
+// FROZEN PROTOCOL CONSTANTS: these prefixes are part of the signed bytes and
+// thus wire-visible. See the normative, frozen v2 spec at
+// docs/enUS/protocol-v2.md (docs/zhCN/protocol-v2.md) §5-§6. Changing either
+// prefix is a breaking wire change requiring a MAJOR bump + migration.
 const (
 	// LicenseSigningDomain is prepended to canonical license payload bytes
 	// before signing/verification (schema v2).

@@ -45,6 +45,12 @@ Key properties:
 
 ## Envelope format
 
+> The **normative, frozen** machine-protocol specification for the v2 wire
+> format — canonicalization, envelope/payload grammar, signature input, domain
+> separators, Base64URL/timestamp/integer limits, and the freeze statement —
+> lives in [`protocol-v2.md`](./protocol-v2.md). This section is a summary; when
+> it and `protocol-v2.md` disagree, `protocol-v2.md` (and the golden tests) win.
+
 A license on disk is a JSON `Envelope`:
 
 ```json
@@ -69,7 +75,10 @@ A license on disk is a JSON `Envelope`:
   rejects trailing data, and requires all four fields to be non-empty.
 
 A revocation list uses the analogous `RevocationEnvelope` wrapping a signed
-`RevocationList{schema_version, issued_at, key_id, revoked_license_ids}`.
+`RevocationList{schema_version, list_id, sequence, issued_at, expires_at,
+key_id, revoked_license_ids}`. Its current `schema_version` is `2`
+(`RevocationSchemaVersion`); see [`protocol-v2.md`](./protocol-v2.md) §4.4 for
+the full field grammar.
 
 ### Golden vectors carry no private key
 
@@ -97,7 +106,7 @@ fixed, security-motivated order:
    validity window).
 5. Verify the Ed25519 signature over the canonical payload bytes.
 6. Check the payload's `key_id` matches the envelope `key_id` and the schema
-   version is `1`.
+   version is `2` (`LicenseSchemaVersion`).
 7. **Anti-rollback state is loaded, checked, and saved only *here* — after the
    signature is proven authentic.** This ordering is deliberate: if untrusted
    input could load/mutate the trusted-time high-water mark *before* the

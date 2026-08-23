@@ -27,6 +27,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Documentation
 
+- **v2 wire protocol spec, frozen (`docs/*/protocol-v2.md`).** New bilingual
+  normative machine-protocol specification for the v2 wire format —
+  `schema_version`, deterministic canonicalization (sorted keys +
+  `SetEscapeHTML(false)` + no whitespace + `UseNumber`; **not** RFC 8785 JCS),
+  envelope/payload/revocation grammar, signature input (`domain || canonical`,
+  Ed25519), the `grantseal/license/v2\x00` / `grantseal/revocation/v2\x00`
+  domain separators, Base64URL/timestamp/integer-limit rules, unknown-field
+  policy, and the extension policy — pinned to the code and golden vectors. It
+  declares **v2 wire format frozen after v1.0**: any change to the wire,
+  canonical form, signature input, domain, or encoding (including adding a
+  `Payload` field) is a MAJOR-bump breaking change with a migration note.
+  `docs/*/architecture.md` (English + 简体中文) is corrected — the stale
+  "schema version is 1" / "schema 版本为 1" in the verification-order step now
+  reads `2`, and the Envelope-format section links to `protocol-v2.md` as the
+  authoritative wire spec — and `pkg/license/model.go` gains protocol-freeze
+  pointer comments on the schema-version and signing-domain constants. No wire,
+  error-code, or validation behavior changed.
+  新增双语 v2 wire 协议规范 `docs/*/protocol-v2.md`（机器协议，含规范化算法、
+  信封/payload/撤销语法、签名输入与两个签名域、Base64URL/时间戳/整数上限、未知
+  字段与扩展策略），声明 **v2 wire format frozen after v1.0**；修正
+  architecture.md 中残留的 schema v1 描述为 `2` 并加指向 protocol-v2.md 的链接；
+  在 `pkg/license/model.go` 相关常量补协议冻结指针注释。未改动任何 wire、错误码或
+  校验行为。
+
 - **Cross-process state serialization contract (P1-1).** The
   `RevocationStateStore` interface doc now includes an "IMPLEMENTING A
   CROSS-PROCESS BACKEND" guide (SQLite/Redis/RDBMS atomic compare-and-set and the
