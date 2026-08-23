@@ -88,6 +88,12 @@ func (s *MemRevocationStateStore) CheckAndSaveRevocationState(next *RevocationSt
 // deliberate design limit (zero third-party dependencies, no platform-specific
 // syscalls); the atomic rename keeps each individual write all-or-nothing but
 // does not make cross-process transactions serializable.
+//
+// OPTIONAL IN-PROCESS GUARDRAIL: NewFileRevocationStateStoreExclusive registers
+// the store as the sole in-process writer for its path and fails closed if a
+// second exclusive store is constructed for the same file before the first is
+// Closed. This only surfaces the "duplicate writer within one process" misuse
+// early; it does NOT provide cross-process protection.
 type FileRevocationStateStore struct {
 	path    string
 	hmacKey []byte
@@ -96,6 +102,14 @@ type FileRevocationStateStore struct {
 	// that targets the same file. It is resolved once at construction from the
 	// package-level registry using the cleaned absolute path.
 	pathMu *sync.Mutex
+	// exclusiveKey is the normalized path this store registered as the single
+	// in-process writer, or "" when the store was built without the exclusivity
+	// guardrail. It is used by Close to deregister the reservation.
+	exclusiveKey string
+	// closed guards Close against double release of the exclusivity reservation.
+	closed bool
+	// closeMu serializes Close so concurrent callers deregister at most once.
+	closeMu sync.Mutex
 }
 
 // revStatePathLocks maps a normalized (cleaned, absolute where resolvable)
@@ -106,6 +120,20 @@ type FileRevocationStateStore struct {
 var (
 	revStatePathLocksMu sync.Mutex
 	revStatePathLocks   = map[string]*sync.Mutex{}
+)
+
+// revStateExclusive records the normalized paths for which a
+// FileRevocationStateStore was constructed via
+// NewFileRevocationStateStoreExclusive and has not yet been Closed. It is the
+// optional in-process single-writer guardrail: it detects the misuse pattern of
+// constructing a second exclusive store for the same state file within one
+// process (a frequent precursor to an accidental multi-writer deployment). It
+// provides NO cross-process protection — a second OS process is invisible to
+// this registry, so cross-process single-writer discipline still relies on the
+// deployment (one writer) or a custom cross-process backend.
+var (
+	revStateExclusiveMu sync.Mutex
+	revStateExclusive   = map[string]struct{}{}
 )
 
 // normalizeStatePath returns a stable key for path so different spellings of
@@ -151,6 +179,59 @@ func NewFileRevocationStateStore(path string, hmacKey []byte) (*FileRevocationSt
 	k := make([]byte, len(hmacKey))
 	copy(k, hmacKey)
 	return &FileRevocationStateStore{path: path, hmacKey: k, pathMu: pathLockFor(path)}, nil
+}
+
+// NewFileRevocationStateStoreExclusive is like NewFileRevocationStateStore but
+// additionally registers this store as the sole in-process writer for the
+// normalized state path. If another exclusive store is already registered for
+// the same path (by normalizeStatePath, so relative vs absolute spellings
+// collide), construction fails closed with
+// CodeRevocationStateIntegrityFailure. Call Close to release the reservation so
+// the path can be reconstructed (e.g. after a graceful shutdown of the prior
+// writer within the same process).
+//
+// This guardrail covers ONLY the current process; it cannot detect a second OS
+// process opening the same file and is NOT a substitute for cross-process
+// coordination. Cross-process single-writer discipline must still come from the
+// deployment (exactly one writer process) or a custom cross-process backend
+// (see the RevocationStateStore interface). NewFileRevocationStateStore is
+// unchanged and takes no reservation.
+func NewFileRevocationStateStoreExclusive(path string, hmacKey []byte) (*FileRevocationStateStore, error) {
+	s, err := NewFileRevocationStateStore(path, hmacKey)
+	if err != nil {
+		return nil, err
+	}
+	key := normalizeStatePath(path)
+	revStateExclusiveMu.Lock()
+	if _, exists := revStateExclusive[key]; exists {
+		revStateExclusiveMu.Unlock()
+		return nil, newError(CodeRevocationStateIntegrityFailure, "revocation state path already has an in-process exclusive writer", nil)
+	}
+	revStateExclusive[key] = struct{}{}
+	revStateExclusiveMu.Unlock()
+	s.exclusiveKey = key
+	return s, nil
+}
+
+// Close releases any in-process exclusive-writer reservation taken by
+// NewFileRevocationStateStoreExclusive so the path may be reconstructed. It is
+// idempotent and safe to call on a store built via NewFileRevocationStateStore
+// (which took no reservation), in which case it is a no-op. Close does not flush
+// or touch the state file; every write is already durable via atomic rename.
+func (s *FileRevocationStateStore) Close() error {
+	s.closeMu.Lock()
+	defer s.closeMu.Unlock()
+	if s.closed {
+		return nil
+	}
+	s.closed = true
+	if s.exclusiveKey == "" {
+		return nil
+	}
+	revStateExclusiveMu.Lock()
+	delete(revStateExclusive, s.exclusiveKey)
+	revStateExclusiveMu.Unlock()
+	return nil
 }
 
 func (s *FileRevocationStateStore) mac(entries map[string]RevocationState) (string, error) {

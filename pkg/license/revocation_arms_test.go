@@ -232,6 +232,96 @@ func TestLoadRevocationRollbackDigestMismatch(t *testing.T) {
 	}
 }
 
+// TestLoadRevocationUnknownField covers the DisallowUnknownFields decode arm in
+// verifyRevocationSignature: a validly-signed payload whose JSON carries an
+// extra unknown field must be rejected as CodeMalformed AFTER the signature is
+// accepted (the signature is computed over the exact bytes with the extra
+// field, so it is authentic).
+func TestLoadRevocationUnknownField(t *testing.T) {
+	s, pub := testKeyPair(t, "k1")
+	ring := ringWith(t, "k1", pub)
+	now := time.Now().UTC()
+
+	// Canonical-looking payload with an extra unknown field appended. It is not
+	// re-canonicalized here; the decode fails on the unknown field before the
+	// canonical check is reached.
+	payload := []byte(`{"schema_version":2,"list_id":"list-test","sequence":1,"issued_at":"` +
+		now.Format(time.RFC3339Nano) + `","expires_at":"` + now.Add(24*time.Hour).Format(time.RFC3339Nano) +
+		`","key_id":"k1","revoked_license_ids":["lic_x"],"unknown_field":"boom"}`)
+	sig := issuer.SignRevocationBytes(s, payload)
+	env := &license.RevocationEnvelope{
+		Algorithm: license.AlgorithmEd25519,
+		KeyID:     "k1",
+		Payload:   base64.URLEncoding.EncodeToString(payload),
+		Signature: base64.URLEncoding.EncodeToString(sig),
+	}
+	data, _ := json.Marshal(env)
+	if _, err := license.LoadRevocationListWithPolicy(ring, data, now, license.RevocationPolicy{}); license.CodeOf(err) != license.CodeMalformed {
+		t.Fatalf("unknown field: want CodeMalformed, got %s", license.CodeOf(err))
+	}
+}
+
+// TestLoadRevocationNonCanonicalBytes covers the canonical-equality arm: a
+// validly-signed payload whose bytes decode fine but are not the canonical form
+// (extra whitespace) must be rejected as CodeNonCanonicalPayload.
+func TestLoadRevocationNonCanonicalBytes(t *testing.T) {
+	s, pub := testKeyPair(t, "k1")
+	ring := ringWith(t, "k1", pub)
+	now := time.Now().UTC()
+
+	// Well-formed JSON with cosmetic whitespace, so it decodes to a valid list
+	// but its bytes differ from the canonical re-encoding.
+	payload := []byte(`{  "schema_version": 2, "list_id": "list-test", "sequence": 1, "issued_at": "` +
+		now.Format(time.RFC3339Nano) + `", "expires_at": "` + now.Add(24*time.Hour).Format(time.RFC3339Nano) +
+		`", "key_id": "k1", "revoked_license_ids": ["lic_x"] }`)
+	sig := issuer.SignRevocationBytes(s, payload)
+	env := &license.RevocationEnvelope{
+		Algorithm: license.AlgorithmEd25519,
+		KeyID:     "k1",
+		Payload:   base64.URLEncoding.EncodeToString(payload),
+		Signature: base64.URLEncoding.EncodeToString(sig),
+	}
+	data, _ := json.Marshal(env)
+	if _, err := license.LoadRevocationListWithPolicy(ring, data, now, license.RevocationPolicy{}); license.CodeOf(err) != license.CodeNonCanonicalPayload {
+		t.Fatalf("non-canonical bytes: want CodeNonCanonicalPayload, got %s", license.CodeOf(err))
+	}
+}
+
+// TestLoadRevocationUnsupportedSchema covers the schema-version arm inside
+// verifyRevocationSignature: a validly-signed, canonical payload whose
+// schema_version is neither 2 nor 1 (here 3) must be rejected as
+// CodeUnsupportedSchema after passing the signature and canonical checks.
+func TestLoadRevocationUnsupportedSchema(t *testing.T) {
+	s, pub := testKeyPair(t, "k1")
+	ring := ringWith(t, "k1", pub)
+	now := time.Now().UTC()
+
+	rl := &license.RevocationList{
+		SchemaVersion: 3, // neither 2 nor 1
+		ListID:        "list-test",
+		Sequence:      1,
+		IssuedAt:      now,
+		ExpiresAt:     ptr(now.Add(24 * time.Hour)),
+		KeyID:         "k1",
+		RevokedIDs:    []string{"lic_x"},
+	}
+	canonical, err := license.CanonicalRevocationBytes(rl)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sig := issuer.SignRevocationBytes(s, canonical)
+	env := &license.RevocationEnvelope{
+		Algorithm: license.AlgorithmEd25519,
+		KeyID:     "k1",
+		Payload:   base64.URLEncoding.EncodeToString(canonical),
+		Signature: base64.URLEncoding.EncodeToString(sig),
+	}
+	data, _ := json.Marshal(env)
+	if _, err := license.LoadRevocationListWithPolicy(ring, data, now, license.RevocationPolicy{}); license.CodeOf(err) != license.CodeUnsupportedSchema {
+		t.Fatalf("schema=3: want CodeUnsupportedSchema, got %s", license.CodeOf(err))
+	}
+}
+
 // TestVerifyKeyIDMismatch covers the verifier's payload-key_id vs envelope arm
 // and the canonical-mismatch arm.
 func TestVerifyKeyIDMismatch(t *testing.T) {

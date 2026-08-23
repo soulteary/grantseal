@@ -126,7 +126,15 @@ grantseal 清晰地划分为**签发端**（持有私钥）与**客户端**（�
 - **撤销状态为单进程写者。** `RevocationStateStore` 的并发保证仅在**单进程内**成立。
   `FileRevocationStateStore` 通过包级按路径锁协调同一进程内共享同一路径的多个实例，但
   **不获取操作系统级文件锁**，因此**不**能保护分处不同进程、写同一状态文件的并发写者。
-  请为撤销状态文件部署单一写者进程。
+  该接口是**可插拔后端**：`CheckAndSaveRevocationState` 必须原子地完成整个
+  读→分类→写决策，因此多进程/多实例部署应基于具备跨进程可串行化 compare-and-set 的
+  存储自行实现（SQLite 的 `UPDATE ... WHERE sequence < ?`、Redis 的 `WATCH`/`MULTI`
+  或 Lua、RDBMS 的 `SELECT ... FOR UPDATE`），并保持完全一致的
+  stale/rollback/幂等 分类语义。`FileRevocationStateStore` 是参考的单写者实现；
+  `NewFileRevocationStateStoreExclusive` 是可选的进程内护栏，在同进程意外重复构造写者时
+  fail-closed（由 `Close` 释放），但无法察觉第二个操作系统进程。请部署单一写者进程、
+  改用自定义原子后端，或拆分为只读副本加单一写者。竞态时序与三种部署形态详见根目录
+  `SECURITY.md`。
 - **默认拒绝 v1 旧列表。** v1 列表（无 sequence/expiry、无防重放）仅在调用方通过
   `RevocationPolicy.AllowLegacyV1Revocation()` 显式选择加入时才被接受（*构建*列表时对应
   `-v1` 标志）。以此保持默认 fail-closed。

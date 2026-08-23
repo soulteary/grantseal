@@ -126,17 +126,64 @@ A verified v2 list passes through four distinct layers, in this order:
 4. **Anti-replay** (local high-water mark) — when a `StateStore` is configured,
    a lower sequence is rejected (`LICENSE_REVOCATION_STALE`) and a reused
    sequence with different content is rejected (`LICENSE_REVOCATION_ROLLBACK`);
-   this runs even under `WithoutFreshness`. This state store is a
-   **single-process writer**: `FileRevocationStateStore` coordinates in-process
-   instances via a per-path lock but takes **no OS-level file lock**, so it is
-   not safe against concurrent writers in separate processes — deploy a single
-   writer process for the state file.
+   this runs even under `WithoutFreshness`. The state store is a
+   **single-process writer** — see
+   [Revocation state store: concurrency & deployment](#revocation-state-store-concurrency--deployment).
 
 The `issued_at`/`expires_at` fields therefore serve two roles: their *presence
 and ordering* is a hard structural requirement (layer 2), while their comparison
 against the current clock is the relaxable freshness window (layer 3). There is
 still no online freshness guarantee — a client only knows about the list it
 holds (Roadmap).
+
+## Revocation state store: concurrency & deployment
+
+The anti-replay high-water mark (layer 4 above) is persisted through a
+`RevocationStateStore`. The bundled `FileRevocationStateStore` authenticates a
+single JSON file with HMAC-SHA256 and serializes the
+read→classify→write transaction across in-process instances via a package-level
+per-path lock. It takes **no OS-level file lock** (a deliberate zero-dependency,
+no-platform-syscall design limit), so its concurrency guarantees hold **only
+within a single process**. Two OS processes writing the same state file can lose
+an update:
+
+```mermaid
+sequenceDiagram
+    participant A as Process A
+    participant F as state file
+    participant B as Process B
+    A->>F: read seq=10
+    B->>F: read seq=10
+    A->>F: write seq=11
+    B->>F: write seq=12
+    Note over F: the per-path mutex is in-process only; with no cross-process lock, B's write is a lost update
+```
+
+Choose one of three safe deployment shapes:
+
+1. **Single writer process (file store).** Exactly one process owns the state
+   file and performs every `CheckAndSaveRevocationState`. This is the simplest
+   shape and the intended use of `FileRevocationStateStore` for offline,
+   single-process deployments. The optional
+   `NewFileRevocationStateStoreExclusive` constructor fails closed
+   (`LICENSE_REVOCATION_STATE_INTEGRITY_FAILURE`) if a second exclusive store is
+   built for the same path within the *same* process before the first is
+   `Close`d — a guardrail against accidental in-process duplicate writers. It
+   does **not** detect a second OS process.
+2. **Custom atomic backend (multi-process / multi-instance).** For more than one
+   writer, implement `RevocationStateStore` over a store with atomic
+   compare-and-set — SQLite (`UPDATE ... WHERE sequence < ?`), Redis
+   (`WATCH`/`MULTI` or a Lua script), or an RDBMS (`SELECT ... FOR UPDATE`) — and
+   make `CheckAndSaveRevocationState` serializable **across processes** while
+   preserving the exact stale/rollback/idempotent classification. grantseal
+   itself stays zero-dependency and ships no such driver.
+3. **Read-only replicas + a single writer.** Many processes may read the state,
+   but only one performs writes; readers must not call
+   `CheckAndSaveRevocationState`/`SaveRevocationState` against the shared file.
+
+This is an in-process guardrail only — cross-process single-writer discipline
+must still come from the deployment (shape 1 or 3) or a cross-process backend
+(shape 2).
 
 ## Fingerprint privacy & drift
 

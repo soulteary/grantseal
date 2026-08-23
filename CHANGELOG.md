@@ -11,6 +11,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Optional in-process single-writer guardrail for revocation state.**
+  `NewFileRevocationStateStoreExclusive(path, hmacKey)` constructs a
+  `FileRevocationStateStore` that registers itself as the sole in-process writer
+  for the normalized state path and fails closed
+  (`LICENSE_REVOCATION_STATE_INTEGRITY_FAILURE`) if a second exclusive store is
+  built for the same path within the same process before the first is `Close`d.
+  A new `(*FileRevocationStateStore).Close()` releases the reservation (and is a
+  no-op for stores built via the unchanged `NewFileRevocationStateStore`). This
+  surfaces accidental in-process duplicate writers early; it provides **no**
+  cross-process protection. `NewFileRevocationStateStore`'s signature and
+  behavior are unchanged (additive per the API compatibility rules).
+
+### Documentation
+
+- **Cross-process state serialization contract (P1-1).** The
+  `RevocationStateStore` interface doc now includes an "IMPLEMENTING A
+  CROSS-PROCESS BACKEND" guide (SQLite/Redis/RDBMS atomic compare-and-set and the
+  cross-process serializability requirement), clarifying that
+  `FileRevocationStateStore` is the single-process reference implementation.
+  `SECURITY.md` and `docs/*/architecture.md` (English + 简体中文) gain a
+  "revocation state store: concurrency & deployment" section with the
+  cross-process race sequence diagram and three safe deployment shapes
+  (single writer process, custom atomic backend, read-only replicas plus one
+  writer). No wire, error-code, or main-chain validation behavior changed.
+
 ## [1.0.0] - 2026-08-22
 
 First **stable** release. `grantseal` now declares its four surfaces — the

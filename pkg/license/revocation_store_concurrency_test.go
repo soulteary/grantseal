@@ -177,3 +177,207 @@ func TestFileStoreCorruptExistingNotOverwritten(t *testing.T) {
 		t.Fatal("corrupt state file must not be overwritten by a failed transaction")
 	}
 }
+
+// TestExclusiveStoreDuplicateSamePathFails verifies the optional in-process
+// single-writer guardrail: constructing a second exclusive store for the same
+// path (before the first is Closed) fails closed with
+// CodeRevocationStateIntegrityFailure. A different spelling of the same path is
+// normalized to the same registry key and also collides.
+func TestExclusiveStoreDuplicateSamePathFails(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "excl.state")
+	a, err := license.NewFileRevocationStateStoreExclusive(path, []byte("k"))
+	if err != nil {
+		t.Fatalf("first exclusive store: %v", err)
+	}
+	t.Cleanup(func() { _ = a.Close() })
+
+	// Same path, different spelling (relative-style ".") must collide.
+	dup := filepath.Join(filepath.Dir(path), ".", filepath.Base(path))
+	if _, err := license.NewFileRevocationStateStoreExclusive(dup, []byte("k")); license.CodeOf(err) != license.CodeRevocationStateIntegrityFailure {
+		t.Fatalf("duplicate exclusive on same path: want CodeRevocationStateIntegrityFailure, got %v", err)
+	}
+}
+
+// TestExclusiveStoreReconstructAfterClose verifies that Close releases the
+// in-process reservation so the same path can be reconstructed. Close is also
+// idempotent.
+func TestExclusiveStoreReconstructAfterClose(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "excl.state")
+	a, err := license.NewFileRevocationStateStoreExclusive(path, []byte("k"))
+	if err != nil {
+		t.Fatalf("first exclusive store: %v", err)
+	}
+	if err := a.Close(); err != nil {
+		t.Fatalf("close a: %v", err)
+	}
+	// Idempotent second Close is a no-op.
+	if err := a.Close(); err != nil {
+		t.Fatalf("second close a: %v", err)
+	}
+
+	b, err := license.NewFileRevocationStateStoreExclusive(path, []byte("k"))
+	if err != nil {
+		t.Fatalf("reconstruct after close: %v", err)
+	}
+	t.Cleanup(func() { _ = b.Close() })
+
+	// The reconstructed store still works against the shared file.
+	if err := b.CheckAndSaveRevocationState(stateFor("L", 7, "d7")); err != nil {
+		t.Fatalf("reconstructed store write: %v", err)
+	}
+}
+
+// TestExclusiveStoreDifferentPathsIndependent verifies exclusive stores over
+// distinct paths do not interfere with each other's reservations.
+func TestExclusiveStoreDifferentPathsIndependent(t *testing.T) {
+	dir := t.TempDir()
+	a, err := license.NewFileRevocationStateStoreExclusive(filepath.Join(dir, "a.state"), []byte("k"))
+	if err != nil {
+		t.Fatalf("store a: %v", err)
+	}
+	t.Cleanup(func() { _ = a.Close() })
+	b, err := license.NewFileRevocationStateStoreExclusive(filepath.Join(dir, "b.state"), []byte("k"))
+	if err != nil {
+		t.Fatalf("store b (different path must be independent): %v", err)
+	}
+	t.Cleanup(func() { _ = b.Close() })
+}
+
+// TestExclusiveStoreConcurrentConstructionSingleWinner stresses the in-process
+// single-writer guardrail: many goroutines race to construct an exclusive store
+// for the SAME path. Exactly one construction must win; every other must fail
+// closed with CodeRevocationStateIntegrityFailure. After the winner Closes and
+// releases its reservation, the path must be exclusively reconstructable.
+//
+// NOTE: NewFileRevocationStateStoreExclusive returns a nil store on failure, so
+// only the single winning store is ever Closed (see the losers-are-nil
+// assertion below). This test must stay clean under `go test -race`.
+func TestExclusiveStoreConcurrentConstructionSingleWinner(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "excl.state")
+
+	const goroutines = 16
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	var winners []*license.FileRevocationStateStore
+	var successes, integrityFailures, otherErrors int
+
+	wg.Add(goroutines)
+	for i := 0; i < goroutines; i++ {
+		go func() {
+			defer wg.Done()
+			s, err := license.NewFileRevocationStateStoreExclusive(path, []byte("k"))
+			mu.Lock()
+			defer mu.Unlock()
+			switch {
+			case err == nil:
+				successes++
+				winners = append(winners, s)
+			case license.CodeOf(err) == license.CodeRevocationStateIntegrityFailure:
+				// Losers must return a nil store (nothing to Close).
+				if s != nil {
+					otherErrors++
+				}
+				integrityFailures++
+			default:
+				otherErrors++
+			}
+		}()
+	}
+	wg.Wait()
+
+	if otherErrors != 0 {
+		t.Fatalf("unexpected errors or non-nil loser store: otherErrors=%d", otherErrors)
+	}
+	if successes != 1 {
+		t.Fatalf("exactly one exclusive construction must win, got %d successes", successes)
+	}
+	if integrityFailures != goroutines-1 {
+		t.Fatalf("every loser must fail closed with CodeRevocationStateIntegrityFailure: want %d, got %d", goroutines-1, integrityFailures)
+	}
+	if len(winners) != 1 {
+		t.Fatalf("expected a single winning store, got %d", len(winners))
+	}
+
+	// Closing the winner releases the reservation so the path can be claimed again.
+	if err := winners[0].Close(); err != nil {
+		t.Fatalf("close winner: %v", err)
+	}
+	reclaimed, err := license.NewFileRevocationStateStoreExclusive(path, []byte("k"))
+	if err != nil {
+		t.Fatalf("re-exclusive after winner Close: %v", err)
+	}
+	t.Cleanup(func() { _ = reclaimed.Close() })
+}
+
+// TestExclusiveStoreFailureLeavesWinnerUsable verifies that a failed duplicate
+// exclusive construction does not disturb the first store that legitimately
+// holds the reservation: the holder stays usable, its Close still releases the
+// reservation, and the path can be exclusively reconstructed afterwards.
+//
+// It also documents the failure-path contract: when
+// NewFileRevocationStateStoreExclusive fails due to duplicate detection it
+// returns a nil store, so callers must NOT (and cannot) Close the failed
+// result — only the store that succeeded owns and must release the reservation.
+func TestExclusiveStoreFailureLeavesWinnerUsable(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "excl.state")
+
+	holder, err := license.NewFileRevocationStateStoreExclusive(path, []byte("k"))
+	if err != nil {
+		t.Fatalf("first exclusive store: %v", err)
+	}
+
+	// A duplicate exclusive construction (different spelling of the same path)
+	// must fail closed and return a nil store. There is nothing to Close on it.
+	dup := filepath.Join(filepath.Dir(path), ".", filepath.Base(path))
+	failed, derr := license.NewFileRevocationStateStoreExclusive(dup, []byte("k"))
+	if license.CodeOf(derr) != license.CodeRevocationStateIntegrityFailure {
+		t.Fatalf("duplicate exclusive: want CodeRevocationStateIntegrityFailure, got %v", derr)
+	}
+	if failed != nil {
+		t.Fatal("failed exclusive construction must return a nil store (do not Close it)")
+	}
+
+	// The original holder is unaffected by the failed duplicate: it still works.
+	if err := holder.CheckAndSaveRevocationState(stateFor("L", 9, "d9")); err != nil {
+		t.Fatalf("holder still usable after duplicate failure: %v", err)
+	}
+
+	// The holder's Close still releases the reservation cleanly.
+	if err := holder.Close(); err != nil {
+		t.Fatalf("close holder after duplicate failure: %v", err)
+	}
+
+	// After release, the path can be exclusively reconstructed.
+	reclaimed, err := license.NewFileRevocationStateStoreExclusive(path, []byte("k"))
+	if err != nil {
+		t.Fatalf("re-exclusive after holder Close: %v", err)
+	}
+	t.Cleanup(func() { _ = reclaimed.Close() })
+}
+
+// TestNonExclusiveStoreTakesNoReservation verifies NewFileRevocationStateStore
+// behavior is unchanged: it takes no exclusivity reservation, so multiple
+// instances over the same path still construct successfully (backward
+// compatible), and Close on such a store is a harmless no-op.
+func TestNonExclusiveStoreTakesNoReservation(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "plain.state")
+	a, err := license.NewFileRevocationStateStore(path, []byte("k"))
+	if err != nil {
+		t.Fatalf("plain store a: %v", err)
+	}
+	b, err := license.NewFileRevocationStateStore(path, []byte("k"))
+	if err != nil {
+		t.Fatalf("plain store b (must remain backward compatible): %v", err)
+	}
+	if err := a.Close(); err != nil {
+		t.Fatalf("close plain a (no-op): %v", err)
+	}
+	// A plain store must not have reserved the path, so an exclusive store can
+	// still claim it.
+	x, err := license.NewFileRevocationStateStoreExclusive(path, []byte("k"))
+	if err != nil {
+		t.Fatalf("exclusive claim over plain-store path: %v", err)
+	}
+	t.Cleanup(func() { _ = x.Close() })
+	_ = b
+}

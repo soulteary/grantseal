@@ -199,7 +199,31 @@ type RevocationState struct {
 // that share a path via a package-level per-path lock, but it does NOT take an
 // OS-level file lock, so it is NOT safe against concurrent writers in SEPARATE
 // processes writing the same file. Deploy a single writer process for the
-// revocation state file.
+// revocation state file. FileRevocationStateStore is the reference
+// implementation for development, single-process, or single-writer deployments;
+// it is NOT a multi-writer production backend.
+//
+// IMPLEMENTING A CROSS-PROCESS BACKEND: to run more than one writer process (or
+// multiple instances) against shared state, implement this interface yourself
+// over a store that offers atomic compare-and-set, and back
+// CheckAndSaveRevocationState with a transaction that is SERIALIZABLE
+// (linearizable) ACROSS PROCESSES — not merely within one process. grantseal
+// stays zero-dependency and ships no OS file lock or DB driver, so the durable
+// cross-process coordination is the caller's responsibility. Sketches:
+//   - SQLite: one transaction doing SELECT then
+//     UPDATE ... WHERE sequence < ? (or a UNIQUE constraint plus
+//     INSERT OR IGNORE) so a losing writer cannot regress the mark.
+//   - Redis: WATCH/MULTI optimistic locking, or a Lua script performing the
+//     compare-and-set atomically.
+//   - RDBMS: SELECT ... FOR UPDATE inside a transaction.
+//
+// Any backend MUST reproduce the exact classification semantics of the shipped
+// stores (see classifyRevocationTransition): no prior state or a strictly
+// higher sequence advances the mark (write); the same sequence with the same
+// digest is idempotent (no write, nil error); the same sequence with a
+// different digest is CodeRevocationRollback; a strictly lower sequence is
+// CodeRevocationStale. The whole read->classify->write decision must be atomic
+// so concurrent callers cannot lose updates or regress the high-water mark.
 type RevocationStateStore interface {
 	// LoadRevocationState returns the stored state for listID, or (nil, nil) if
 	// none exists. A corrupt/tampered store returns

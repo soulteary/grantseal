@@ -161,8 +161,19 @@ verified in CI).
   process**. `FileRevocationStateStore` coordinates multiple in-process
   instances that share a path via a package-level per-path lock, but it takes
   **no OS-level file lock**, so it is **not** safe against concurrent writers in
-  separate processes writing the same state file. Deploy a single writer process
-  for the revocation state file.
+  separate processes writing the same state file. The interface is a
+  **pluggable backend**: `CheckAndSaveRevocationState` must perform the whole
+  read→classify→write decision atomically, so multi-process/multi-instance
+  deployments should implement it over a store with cross-process serializable
+  compare-and-set (SQLite `UPDATE ... WHERE sequence < ?`, Redis `WATCH`/`MULTI`
+  or Lua, or an RDBMS `SELECT ... FOR UPDATE`), preserving the exact
+  stale/rollback/idempotent classification. `FileRevocationStateStore` is the
+  reference single-writer implementation; `NewFileRevocationStateStoreExclusive`
+  is an optional in-process guardrail that fails closed on an accidental
+  duplicate in-process writer (released via `Close`) but cannot see a second OS
+  process. Deploy a single writer process, use a custom atomic backend, or split
+  into read-only replicas plus one writer. See the root `SECURITY.md` for the
+  race sequence and the three deployment shapes.
 - **Legacy v1 lists are rejected by default.** A v1 list (no
   sequence/expiry, no replay resistance) is only accepted when the caller
   explicitly opts in via `RevocationPolicy.AllowLegacyV1Revocation()` (or the
