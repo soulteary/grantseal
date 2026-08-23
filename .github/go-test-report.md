@@ -4,11 +4,11 @@
 
 | Metric | Value |
 | --- | --- |
-| Total | 448 |
-| Passed | 448 |
+| Total | 459 |
+| Passed | 459 |
 | Failed | 0 |
 | Skipped | 0 |
-| Coverage | 94.47% |
+| Coverage | 94.86% |
 | Threshold | 93.00% |
 
 ### Packages
@@ -18,4 +18,4 @@
 | cmd/license-tool | pass | 109 | 0 | 93.16% |
 | internal/issuer | pass | 63 | 0 | 93.23% |
 | pkg/fingerprint | pass | 40 | 0 | 96.72% |
-| pkg/license | pass | 236 | 0 | 95.00% |
+| pkg/license | pass | 247 | 0 | 95.70% |
