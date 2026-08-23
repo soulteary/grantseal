@@ -22,8 +22,8 @@ and fails on any diff). Test command:
 
 ## Environment of record
 
-- Commit: `7479a8449211bce5bb62eaa4fa1a2093ea8b90c4`
-- Generated (UTC): `2026-08-23T04:24:15Z`
+- Commit: `e47e5fd4914459442ad2cce62b5c936b63f5c54c`
+- Generated (UTC): `2026-08-23T07:57:32Z`
 - Go version: `go1.26.6`
 - OS / arch: `linux/amd64`
 
