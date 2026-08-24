@@ -11,6 +11,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-08-24
+
+No wire, error-code, CLI, or main-chain validation behavior changed relative to
+`1.0.0`. This release is additive: an optional in-process single-writer
+guardrail for the file revocation-state store, plus a frozen v2 wire-protocol
+specification and cross-process state-serialization guidance.
+
+相对 `1.0.0` 未改动任何 wire、错误码、CLI 或主链路校验行为。本次为纯增量发布：
+文件撤销状态存储新增可选的进程内单写者护栏，并冻结 v2 wire 协议规范、补充跨进程
+状态序列化指引。
+
 ### Added
 
 - **Optional in-process single-writer guardrail for revocation state.**
@@ -421,7 +432,8 @@ written in Go 1.26 using **only the standard library**.
   is recorded here (see the 0.9.0 entry, which raises it to `2` and adds
   signing-domain separation).
 
-[Unreleased]: https://github.com/soulteary/grantseal/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/soulteary/grantseal/compare/v1.1.0...HEAD
+[1.1.0]: https://github.com/soulteary/grantseal/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/soulteary/grantseal/compare/v0.9.0...v1.0.0
 [0.9.0]: https://github.com/soulteary/grantseal/compare/v0.1.0...v0.9.0
 [0.1.0]: https://github.com/soulteary/grantseal/releases/tag/v0.1.0
