@@ -77,3 +77,45 @@
 job，每个 `-fuzztime=30s`）以确保其可编译、可执行。定时工作流
 （`.github/workflows/fuzz-nightly.yml`）会运行更长的 campaign（每 target
 `-fuzztime=10m`），并把发现的 crash 语料作为构建产物归档，便于复现。
+
+## 测试文件命名重构（P2 / 可维护性）
+
+以下测试文件是在快速补覆盖率阶段产生的"杂物型"命名（`coverage_*`、
+`arms2_*`、`*_more_*`），名字无法告诉维护者其中到底测什么。这**不是质量缺陷**，
+而是可维护性事项：**不要为此单独发大改 commit**，以后碰到对应源码时顺手按下表迁移即可。
+
+约定：按**被测源文件**一一对应命名；内部包（`package license`，可测未导出符号）
+测试保留 `_internal_test.go` 后缀，外部包（`package license_test`）测试不加后缀。
+拆分时若目标文件名已存在（如 `version_internal_test.go`、`revocation_v2_regression_test.go`），
+合并进去即可，无需新建。
+
+| 现文件 | 包 | 目标文件（按主题拆分） | 覆盖的主题 |
+| ------ | -- | ---------------------- | ---------- |
+| `pkg/license/coverage_test.go` | `license_test`（外部） | `envelope_parse_test.go` | 信封解析边界：空、未知字段、尾随数据、重复 key、缺字段、坏 Base64 签名 |
+| ↑ | | `keyring_lookup_test.go` | KeyRing：坏 key 长度、空 key_id、未知 key、revoke/disable 优先级、有效期窗口、`KeyIDs()` 排序 |
+| ↑ | | `rollback_state_test.go` | 回拨状态：空路径/key、缺失、截断、未知字段、超大、round-trip、错误 key、派生 key、`lifetime` 容错 |
+| ↑ | | `revocation_load_test.go` | 撤销列表加载：错误 key_id、坏签名、去重、`StaticRevocation` nil 安全 |
+| ↑ | | `result_facade_test.go` | 结果门面：`Features()`/`Limits()`/`ExpiresAt()` 防御性拷贝 |
+| ↑ | | `version_validate_test.go` | 经公开 `Manager.Validate` 的版本 fail-closed（缺版本、预发布、不可解析） |
+| `pkg/license/arms2_internal_test.go` | `license`（内部） | `version_internal_test.go`（已存在，合并） | `parseVersion`/`parseNumericID` 分支（`TestParseVersionAndNumericArms`） |
+| ↑ | | `strictjson_internal_test.go` | `decodeStrictJSON`/`rejectDuplicateKeys` 直连分支（`TestStrictJSONDirectArms`） |
+| ↑ | | `device_check_internal_test.go` | `checkDevice` 的空指纹/无效模式分支（`TestCheckDeviceArms`） |
+| ↑ | | `revocation_validation_internal_test.go` | v2 静态不变量、freshness、`classifyRevocationTransition`、`signedRevocation` nil 安全（`TestValidateRevocationV2StaticArms`/`TestCheckRevocationFreshnessArms`/`TestSignedRevocationIsRevokedNil`/`TestClassifyRevocationTransitionNilNext`） |
+| ↑ | | `manager_loadvalidate_internal_test.go` | `LoadAndValidate` 的 size-cap/not-found/委派分支（`TestLoadAndValidateArms`） |
+| `pkg/license/coverage_more_internal_test.go` | `license`（内部） | `errors_internal_test.go` | `Error()`/`Unwrap()`/`Is()`/`CodeOf` 分支（`TestError*`/`TestCodeOfNonLicenseError`） |
+| ↑ | | `model_validate_internal_test.go` | enum `Valid()` 默认分支、`validateStatic` 各分支：身份/枚举/limits/时间语义/设备绑定（`TestEnumValidDefaultArms`/`TestValidate{Static,Identity,Enums,LimitsRange,TimeSemantics}Arms`） |
+| ↑ | | `manager_clock_internal_test.go` | `WithClockSkew`、`clockSkewDefault` env、时钟不可用 fail-closed、`Inspect` 降级/解析、`CachedResult`（`TestWithClockSkewIgnoresNonPositive`/`TestClockSkewDefaultEnv`/`TestValidateFailsClosedOnClockError`/`TestInspect*`/`TestCachedResultClockFailClosedAndStale`） |
+| ↑ | | `verifier_internal_test.go` | nil verifier/ring/envelope、坏算法、坏签名长度（`TestVerifyNilAndConfigErrors`/`TestVerifyBadSignatureLength`） |
+| ↑ | | `keyring_policy_internal_test.go` | `CheckKeyPolicy` 的 revoked/disabled/window 分支（`TestCheckKeyPolicyArms`） |
+| ↑ | | `strictjson_internal_test.go`（同上，合并） | `DecodeStrictJSON` 的数组/嵌套对象/非法 key/重复 key 分支（`TestStrictJSONArmsDirect`） |
+| `cmd/license-tool/cli_more_test.go` | `main`（内部，非 `main_test`） | `cli_verify_test.go` / `cli_issue_test.go` / `cli_revoke_test.go` / `cli_inspect_test.go` / `cli_keys_test.go` | 按子命令拆分：verify / issue / revoke-list / inspect / keygen+publickey+fingerprint 与 write helper |
+| `internal/issuer/issuer_more_test.go` | `issuer_test` | `keys_test.go` / `sign_test.go` / `issue_test.go` / `revocation_test.go` | 按能力拆分：密钥生成/编解码/写文件、签名、签发、构建撤销列表 |
+
+> 落地建议：每次因功能改动而修改上述某个源码时，把该源码对应的测试从杂物文件里
+> 剪切到新命名文件，逐步清空 `coverage_*` / `arms2_*` / `*_more_*`，最终删除空壳文件。
+> 迁移是纯文件移动（不改测试逻辑），完成后同步更新上方"本次改动新增的测试文件"清单。
+>
+> 注意共享 helper：`coverage_more_internal_test.go` 顶部的 `errClock` / `internalSigner` /
+> `testInternalSigner` / `ringWithInternal` / `basePayloadFor` / `issueInternalEnvelope` /
+> `issueInternal` 被 verifier/manager 等多组测试共用；拆分时把它们集中放到一个
+> `internal_helpers_test.go`（或就近的 `manager_clock_internal_test.go`），避免重复定义或编译期未使用报错。

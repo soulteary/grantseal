@@ -88,3 +88,54 @@ Every push/PR smoke-runs all four targets for a short time (a matrix job in
 execute. A nightly workflow (`.github/workflows/fuzz-nightly.yml`) runs a longer
 campaign (`-fuzztime=10m` per target) and archives any crash corpus as a
 build artifact so a discovered failure is reproducible.
+
+## Test-file naming refactor (P2 / maintainability)
+
+The test files below carry "junk-drawer" names left over from the rapid
+coverage-raising phase (`coverage_*`, `arms2_*`, `*_more_*`); the names do not
+tell a maintainer what is actually tested inside. This is **not a quality
+defect** — it is a maintainability item: **do not ship a dedicated large commit
+for it.** Migrate opportunistically per the table below whenever you next touch
+the corresponding source.
+
+Convention: name each test file after the **source file under test**; keep the
+`_internal_test.go` suffix for internal-package tests (`package license`, which
+can reach unexported symbols) and drop the suffix for external-package tests
+(`package license_test`). When a target name already exists (e.g.
+`version_internal_test.go`, `revocation_v2_regression_test.go`), merge into it
+rather than creating a new file.
+
+| Current file | Package | Target file (split by topic) | Topics covered |
+| ------------ | ------- | ---------------------------- | -------------- |
+| `pkg/license/coverage_test.go` | `license_test` (external) | `envelope_parse_test.go` | Envelope-parse edges: empty, unknown field, trailing data, duplicate key, missing fields, bad Base64 signature |
+| ↑ | | `keyring_lookup_test.go` | KeyRing: bad key size, empty key_id, unknown key, revoke/disable precedence, validity window, `KeyIDs()` sorting |
+| ↑ | | `rollback_state_test.go` | Rollback state: empty path/key, missing, truncated, unknown field, oversized, round-trip, wrong key, derive-key, `lifetime` tolerance |
+| ↑ | | `revocation_load_test.go` | Revocation-list loading: wrong key_id, bad signature, dedupe, `StaticRevocation` nil-safety |
+| ↑ | | `result_facade_test.go` | Result facade: defensive copies of `Features()`/`Limits()`/`ExpiresAt()` |
+| ↑ | | `version_validate_test.go` | Version fail-closed via public `Manager.Validate` (missing, pre-release, unparsable) |
+| `pkg/license/arms2_internal_test.go` | `license` (internal) | `version_internal_test.go` (exists, merge) | `parseVersion`/`parseNumericID` arms (`TestParseVersionAndNumericArms`) |
+| ↑ | | `strictjson_internal_test.go` | `decodeStrictJSON`/`rejectDuplicateKeys` direct arms (`TestStrictJSONDirectArms`) |
+| ↑ | | `device_check_internal_test.go` | `checkDevice` empty-fingerprint / invalid-mode arms (`TestCheckDeviceArms`) |
+| ↑ | | `revocation_validation_internal_test.go` | v2 static invariants, freshness, `classifyRevocationTransition`, `signedRevocation` nil-safety (`TestValidateRevocationV2StaticArms`/`TestCheckRevocationFreshnessArms`/`TestSignedRevocationIsRevokedNil`/`TestClassifyRevocationTransitionNilNext`) |
+| ↑ | | `manager_loadvalidate_internal_test.go` | `LoadAndValidate` size-cap/not-found/delegation arms (`TestLoadAndValidateArms`) |
+| `pkg/license/coverage_more_internal_test.go` | `license` (internal) | `errors_internal_test.go` | `Error()`/`Unwrap()`/`Is()`/`CodeOf` arms (`TestError*`/`TestCodeOfNonLicenseError`) |
+| ↑ | | `model_validate_internal_test.go` | enum `Valid()` default arms, `validateStatic` arms: identity/enums/limits/time-semantics/device-binding (`TestEnumValidDefaultArms`/`TestValidate{Static,Identity,Enums,LimitsRange,TimeSemantics}Arms`) |
+| ↑ | | `manager_clock_internal_test.go` | `WithClockSkew`, `clockSkewDefault` env, clock-unavailable fail-closed, `Inspect` degrade/parse, `CachedResult` (`TestWithClockSkewIgnoresNonPositive`/`TestClockSkewDefaultEnv`/`TestValidateFailsClosedOnClockError`/`TestInspect*`/`TestCachedResultClockFailClosedAndStale`) |
+| ↑ | | `verifier_internal_test.go` | nil verifier/ring/envelope, bad algorithm, bad signature length (`TestVerifyNilAndConfigErrors`/`TestVerifyBadSignatureLength`) |
+| ↑ | | `keyring_policy_internal_test.go` | `CheckKeyPolicy` revoked/disabled/window arms (`TestCheckKeyPolicyArms`) |
+| ↑ | | `strictjson_internal_test.go` (same as above, merge) | `DecodeStrictJSON` array/nested-object/non-string-key/duplicate-key arms (`TestStrictJSONArmsDirect`) |
+| `cmd/license-tool/cli_more_test.go` | `main` (internal, not `main_test`) | `cli_verify_test.go` / `cli_issue_test.go` / `cli_revoke_test.go` / `cli_inspect_test.go` / `cli_keys_test.go` | Split per subcommand: verify / issue / revoke-list / inspect / keygen+publickey+fingerprint plus write helpers |
+| `internal/issuer/issuer_more_test.go` | `issuer_test` | `keys_test.go` / `sign_test.go` / `issue_test.go` / `revocation_test.go` | Split per capability: key gen/decode/write-files, signing, issuing, building revocation lists |
+
+> How to land it: each time a feature change makes you edit one of the source
+> files above, cut its corresponding tests out of the junk-drawer file into the
+> newly named file, gradually emptying `coverage_*` / `arms2_*` / `*_more_*`
+> until the shell files can be deleted. Migration is a pure file move (test
+> logic unchanged); afterwards update the "Newly added test files" list above.
+>
+> Mind the shared helpers: `errClock` / `internalSigner` / `testInternalSigner` /
+> `ringWithInternal` / `basePayloadFor` / `issueInternalEnvelope` / `issueInternal`
+> at the top of `coverage_more_internal_test.go` are shared across the
+> verifier/manager test groups; when splitting, park them in a single
+> `internal_helpers_test.go` (or the nearby `manager_clock_internal_test.go`) to
+> avoid duplicate definitions or unused-symbol compile errors.
