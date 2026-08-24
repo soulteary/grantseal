@@ -85,7 +85,7 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           # Always gate the code at the tag being released, not whatever branch
           # a workflow_dispatch happened to run from.
@@ -184,7 +184,7 @@ jobs:
       attestations: write
     steps:
       - name: Checkout
-        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           # Build the exact tagged commit (not the dispatch branch), and keep
           # full history so the changelog can diff against the previous tag.
@@ -219,7 +219,7 @@ jobs:
           cosign-release: v3.1.3
 
       - name: Install syft (SBOM generator)
-        uses: anchore/sbom-action/download-syft@8e94d75ddd33f69f691467e42275782e4bfefe84 # v0.20.9
+        uses: anchore/sbom-action/download-syft@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
 
       # ---- BUILD (no publish): exact artifacts, nothing pushed/visible --------
       # `--skip=publish` disables the GitHub Release, all image pushes (including
