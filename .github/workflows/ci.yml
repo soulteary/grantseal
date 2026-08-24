@@ -224,6 +224,7 @@ jobs:
         with:
           use-quiet-mode: "yes"
           use-verbose-mode: "yes"
+          config-file: "mlc_config.json"
 
   bench-smoke:
     name: benchmark smoke (compile & run once)
