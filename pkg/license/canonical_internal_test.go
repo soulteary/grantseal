@@ -56,3 +56,24 @@ func TestEncodeScalarDefaultError(t *testing.T) {
 		t.Fatal("expected error for unmarshalable value, got nil")
 	}
 }
+
+// TestEncodeCanonicalErrorPropagation confirms that an unmarshalable scalar
+// nested inside a map value or an array element surfaces as an error from
+// encodeCanonical rather than being silently dropped, exercising the recursive
+// error-propagation arms for both container kinds.
+func TestEncodeCanonicalErrorPropagation(t *testing.T) {
+	t.Run("map_value", func(t *testing.T) {
+		var buf bytes.Buffer
+		v := map[string]any{"bad": make(chan int)}
+		if err := encodeCanonical(&buf, v); err == nil {
+			t.Fatal("expected error for unmarshalable map value, got nil")
+		}
+	})
+	t.Run("array_item", func(t *testing.T) {
+		var buf bytes.Buffer
+		v := []any{"ok", make(chan int)}
+		if err := encodeCanonical(&buf, v); err == nil {
+			t.Fatal("expected error for unmarshalable array item, got nil")
+		}
+	})
+}

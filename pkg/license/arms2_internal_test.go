@@ -153,6 +153,32 @@ func TestCheckRevocationFreshnessArms(t *testing.T) {
 	if err := checkRevocationFreshness(&RevocationList{IssuedAt: now.Add(-time.Minute), ExpiresAt: &exp}, now, pol); err != nil {
 		t.Fatalf("fresh list should pass, got %v", err)
 	}
+	// Defensive: a nil expires_at (should be prevented by the static validator)
+	// must fail closed rather than nil-deref.
+	if err := checkRevocationFreshness(&RevocationList{IssuedAt: now.Add(-time.Minute)}, now, pol); CodeOf(err) != CodeMalformed {
+		t.Fatalf("nil expires_at: want CodeMalformed, got %v", err)
+	}
+}
+
+// TestSignedRevocationIsRevokedNil confirms a nil *signedRevocation reports
+// nothing as revoked instead of panicking (fail-open lookup on a nil set).
+func TestSignedRevocationIsRevokedNil(t *testing.T) {
+	var s *signedRevocation
+	if s.IsRevoked("any-id") {
+		t.Fatal("nil signedRevocation must report not-revoked")
+	}
+}
+
+// TestClassifyRevocationTransitionNilNext confirms the defensive guard for a
+// nil next-state (never produced by callers, but must fail closed).
+func TestClassifyRevocationTransitionNilNext(t *testing.T) {
+	write, err := classifyRevocationTransition(&RevocationState{Sequence: 1}, nil)
+	if write {
+		t.Fatal("nil next must not request a write")
+	}
+	if CodeOf(err) != CodeRevocationStateIntegrityFailure {
+		t.Fatalf("nil next: want CodeRevocationStateIntegrityFailure, got %v", err)
+	}
 }
 
 // TestLoadAndValidateArms drives the LoadAndValidate size-cap, not-found, and

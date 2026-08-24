@@ -1,0 +1,25 @@
+{
+  "name": "invalid-keyid",
+  "description": "Envelope key_id was substituted to a different (known) key so it no longer matches the signed payload's embedded key_id; must fail payload\u003c-\u003eenvelope key_id binding.",
+  "schema_version": 2,
+  "signing_domain": "grantseal/license/v2\u0000",
+  "key_id": "vector-key-2",
+  "public_key": "11qYAYKxCrfVS_7TyWQHOg7hcvPapiMlrwIaaPcHURo=",
+  "canonical": "{\"customer_id\":\"\",\"device_binding\":{\"mode\":\"none\"},\"edition\":\"basic\",\"grace_period_days\":0,\"issued_at\":\"2024-01-02T03:04:05Z\",\"key_id\":\"vector-key-1\",\"license_id\":\"lic-keyid\",\"license_type\":\"lifetime\",\"product_id\":\"p1\",\"schema_version\":2,\"serial_number\":\"\",\"version_constraint\":{}}",
+  "signing_input_hex": "6772616e747365616c2f6c6963656e73652f7632007b22637573746f6d65725f6964223a22222c226465766963655f62696e64696e67223a7b226d6f6465223a226e6f6e65227d2c2265646974696f6e223a226261736963222c2267726163655f706572696f645f64617973223a302c226973737565645f6174223a22323032342d30312d30325430333a30343a30355a222c226b65795f6964223a22766563746f722d6b65792d31222c226c6963656e73655f6964223a226c69632d6b65796964222c226c6963656e73655f74797065223a226c69666574696d65222c2270726f647563745f6964223a227031222c22736368656d615f76657273696f6e223a322c2273657269616c5f6e756d626572223a22222c2276657273696f6e5f636f6e73747261696e74223a7b7d7d",
+  "signature": "Uafa7tJc5gV6a0Bpdqm2InLIVQE3wPnHcb45M8a8rA-PNXsR0ztAh05iC9NJB_MiDe3zK9RJMNGDuKWV7c0uDw==",
+  "envelope": {
+    "algorithm": "Ed25519",
+    "key_id": "vector-key-2",
+    "payload": "eyJjdXN0b21lcl9pZCI6IiIsImRldmljZV9iaW5kaW5nIjp7Im1vZGUiOiJub25lIn0sImVkaXRpb24iOiJiYXNpYyIsImdyYWNlX3BlcmlvZF9kYXlzIjowLCJpc3N1ZWRfYXQiOiIyMDI0LTAxLTAyVDAzOjA0OjA1WiIsImtleV9pZCI6InZlY3Rvci1rZXktMSIsImxpY2Vuc2VfaWQiOiJsaWMta2V5aWQiLCJsaWNlbnNlX3R5cGUiOiJsaWZldGltZSIsInByb2R1Y3RfaWQiOiJwMSIsInNjaGVtYV92ZXJzaW9uIjoyLCJzZXJpYWxfbnVtYmVyIjoiIiwidmVyc2lvbl9jb25zdHJhaW50Ijp7fX0=",
+    "signature": "Uafa7tJc5gV6a0Bpdqm2InLIVQE3wPnHcb45M8a8rA-PNXsR0ztAh05iC9NJB_MiDe3zK9RJMNGDuKWV7c0uDw=="
+  },
+  "validation": {
+    "product_id": "p1",
+    "now": "2024-06-01T00:00:00Z",
+    "clock_skew_seconds": 300
+  },
+  "expected": "invalid",
+  "expected_code": "LICENSE_KEY_ID_MISMATCH",
+  "layer": "verify"
+}

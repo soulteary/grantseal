@@ -1,0 +1,25 @@
+{
+  "name": "invalid-noncanonical",
+  "description": "Payload bytes are validly signed but not in canonical form (keys reordered); must be rejected as non-canonical.",
+  "schema_version": 2,
+  "signing_domain": "grantseal/license/v2\u0000",
+  "key_id": "vector-key-1",
+  "public_key": "11qYAYKxCrfVS_7TyWQHOg7hcvPapiMlrwIaaPcHURo=",
+  "canonical": "{\"version_constraint\":{},\"serial_number\":\"\",\"schema_version\":2,\"product_id\":\"p1\",\"license_type\":\"lifetime\",\"license_id\":\"lic-noncanon\",\"key_id\":\"vector-key-1\",\"issued_at\":\"2024-01-02T03:04:05Z\",\"grace_period_days\":0,\"edition\":\"basic\",\"device_binding\":{\"mode\":\"none\"},\"customer_id\":\"\"}",
+  "signing_input_hex": "6772616e747365616c2f6c6963656e73652f7632007b2276657273696f6e5f636f6e73747261696e74223a7b7d2c2273657269616c5f6e756d626572223a22222c22736368656d615f76657273696f6e223a322c2270726f647563745f6964223a227031222c226c6963656e73655f74797065223a226c69666574696d65222c226c6963656e73655f6964223a226c69632d6e6f6e63616e6f6e222c226b65795f6964223a22766563746f722d6b65792d31222c226973737565645f6174223a22323032342d30312d30325430333a30343a30355a222c2267726163655f706572696f645f64617973223a302c2265646974696f6e223a226261736963222c226465766963655f62696e64696e67223a7b226d6f6465223a226e6f6e65227d2c22637573746f6d65725f6964223a22227d",
+  "signature": "WWV2GNYrJUWDPY9eakGSNa-JK6VXCKz6oSKMVXjPskfgDekXJT9aq_b_fCez_3X4r6DfCb39Do8ULHm6sO9xBQ==",
+  "envelope": {
+    "algorithm": "Ed25519",
+    "key_id": "vector-key-1",
+    "payload": "eyJ2ZXJzaW9uX2NvbnN0cmFpbnQiOnt9LCJzZXJpYWxfbnVtYmVyIjoiIiwic2NoZW1hX3ZlcnNpb24iOjIsInByb2R1Y3RfaWQiOiJwMSIsImxpY2Vuc2VfdHlwZSI6ImxpZmV0aW1lIiwibGljZW5zZV9pZCI6ImxpYy1ub25jYW5vbiIsImtleV9pZCI6InZlY3Rvci1rZXktMSIsImlzc3VlZF9hdCI6IjIwMjQtMDEtMDJUMDM6MDQ6MDVaIiwiZ3JhY2VfcGVyaW9kX2RheXMiOjAsImVkaXRpb24iOiJiYXNpYyIsImRldmljZV9iaW5kaW5nIjp7Im1vZGUiOiJub25lIn0sImN1c3RvbWVyX2lkIjoiIn0=",
+    "signature": "WWV2GNYrJUWDPY9eakGSNa-JK6VXCKz6oSKMVXjPskfgDekXJT9aq_b_fCez_3X4r6DfCb39Do8ULHm6sO9xBQ=="
+  },
+  "validation": {
+    "product_id": "p1",
+    "now": "2024-06-01T00:00:00Z",
+    "clock_skew_seconds": 300
+  },
+  "expected": "invalid",
+  "expected_code": "LICENSE_NON_CANONICAL_PAYLOAD",
+  "layer": "verify"
+}

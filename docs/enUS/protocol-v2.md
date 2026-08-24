@@ -9,9 +9,12 @@ v2 wire format. It records exactly what an issuer produces and a client
 verifies on the wire: byte-level canonicalization, envelope/payload grammar,
 signature input, encoding rules, and the compatibility freeze. It is not a
 product introduction. Every rule here is pinned to code in `pkg/license` and
-`internal/issuer` and to the golden vectors in
-[`pkg/license/canonical_golden_test.go`](../../pkg/license/canonical_golden_test.go).
-Where this document and the code disagree, the code (and its golden tests) win.
+`internal/issuer`, to the canonical golden vectors in
+[`pkg/license/canonical_golden_test.go`](../../pkg/license/canonical_golden_test.go),
+and to the **language-agnostic cross-implementation vectors** under
+[`pkg/license/testdata/vectors/v2/`](../../pkg/license/testdata/vectors/v2/)
+(see that directory's `README.md`). Where this document and the code disagree,
+the code (and its golden tests) win.
 
 ## 1. Schema version
 
@@ -327,3 +330,32 @@ flowchart LR
     EQ --> OK["Verified payload<br/>(policy validation follows)"]
   end
 ```
+
+## 13. Cross-implementation conformance vectors
+
+The frozen v2 protocol ships with **language-agnostic conformance vectors** in
+[`pkg/license/testdata/vectors/v2/`](../../pkg/license/testdata/vectors/v2/) so a
+Rust / Python / Java / Node (or any other) implementation can prove
+compatibility without linking Go. See that directory's `README.md` for the full
+schema and consumption guide.
+
+- Every vector is derived from a single **fixed 32-byte Ed25519 seed**
+  (`vectors.json` → `seed_hex`). Seeding a key from those exact bytes reproduces
+  the recorded public key and every signature; a verifier-only implementation
+  can ignore the seed and just check each recorded signature against the
+  recorded public key.
+- Each `*.json` vector is self-contained: the full envelope, the exact canonical
+  payload string, `signing_input_hex` (= `domain ‖ canonical`), the signature,
+  the verifying public key, the policy inputs (`product_id` / `now` / skew /
+  device fingerprint), and the `expected` outcome + stable `expected_code`.
+- The set covers `valid-basic`, `valid-lifetime`, `valid-subscription`,
+  `valid-device-bound`, plus negatives `invalid-signature`
+  (`LICENSE_SIGNATURE_INVALID`), `invalid-keyid` (`LICENSE_KEY_ID_MISMATCH`),
+  `invalid-noncanonical` (`LICENSE_NON_CANONICAL_PAYLOAD`) and
+  `invalid-duplicate-key` (`LICENSE_MALFORMED`).
+- The Go side consumes these on every `go test` run
+  ([`pkg/license/vectors_test.go`](../../pkg/license/vectors_test.go)); a foreign
+  implementation runs the analogous loop against the same files. Regenerate only
+  after a reviewed protocol change:
+  `go test ./pkg/license -run TestGenerateCrossImplVectors -update`. Any change
+  to a committed vector is a breaking wire change (§12).

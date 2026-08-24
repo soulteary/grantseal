@@ -253,6 +253,14 @@ func TestValidateEnumsArms(t *testing.T) {
 			t.Fatalf("multi with valid fp + opaque id should be valid, got %v", err)
 		}
 	})
+	t.Run("device_mode_multi_empty_ids", func(t *testing.T) {
+		// multi requires at least one device_id; an empty set is malformed.
+		p := basePayload()
+		p.DeviceBinding = DeviceBinding{Mode: DeviceModeMulti}
+		if err := p.validateStatic(); CodeOf(err) != CodeMalformed {
+			t.Fatalf("want CodeMalformed for multi-with-no-ids, got %s", CodeOf(err))
+		}
+	})
 }
 
 func TestValidateLimitsRangeArms(t *testing.T) {

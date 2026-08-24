@@ -7,9 +7,12 @@
 本文档是 grantseal v2 wire 格式的**规范性机器协议规格**。它精确记录签发端在
 线路上产出、客户端验证的内容：字节级规范化、信封/payload 语法、签名输入、编码
 规则与兼容性冻结。这不是产品介绍。此处每一条规则都对齐 `pkg/license` 与
-`internal/issuer` 的代码，以及
+`internal/issuer` 的代码、
 [`pkg/license/canonical_golden_test.go`](../../pkg/license/canonical_golden_test.go)
-中的 golden 向量。当本文档与代码不一致时，以代码（及其 golden 测试）为准。
+中的 canonical golden 向量，以及
+[`pkg/license/testdata/vectors/v2/`](../../pkg/license/testdata/vectors/v2/)
+下的**跨语言实现向量**（参见该目录的 `README.md`）。当本文档与代码不一致时，以
+代码（及其 golden 测试）为准。
 
 ## 1. Schema 版本
 
@@ -285,3 +288,28 @@ flowchart LR
     EQ --> OK["已验证 payload<br/>（随后进行策略校验）"]
   end
 ```
+
+## 13. 跨语言实现一致性向量
+
+冻结的 v2 协议随附一套**跨语言实现向量**，位于
+[`pkg/license/testdata/vectors/v2/`](../../pkg/license/testdata/vectors/v2/)，
+以便 Rust / Python / Java / Node（或任意其它语言）实现无需链接 Go 即可验证兼容
+性。完整 schema 与消费指南见该目录的 `README.md`。
+
+- 每个向量都由单一的**固定 32 字节 Ed25519 seed** 派生（`vectors.json` 的
+  `seed_hex`）。用这些确切字节做 seed 即可复现记录的公钥与全部签名；仅做验签的
+  实现可忽略 seed，直接用记录的公钥校验记录的签名。
+- 每个 `*.json` 向量自成一体：完整信封、精确的 canonical payload 字符串、
+  `signing_input_hex`（= `domain ‖ canonical`）、签名、验签公钥、策略输入
+  （`product_id` / `now` / skew / 设备指纹），以及 `expected` 结果与稳定的
+  `expected_code`。
+- 向量集覆盖 `valid-basic`、`valid-lifetime`、`valid-subscription`、
+  `valid-device-bound`，以及负例 `invalid-signature`
+  （`LICENSE_SIGNATURE_INVALID`）、`invalid-keyid`（`LICENSE_KEY_ID_MISMATCH`）、
+  `invalid-noncanonical`（`LICENSE_NON_CANONICAL_PAYLOAD`）与
+  `invalid-duplicate-key`（`LICENSE_MALFORMED`）。
+- Go 侧在每次 `go test` 时消费这些向量
+  （[`pkg/license/vectors_test.go`](../../pkg/license/vectors_test.go)）；外部实现
+  对同一批文件运行相同的循环。仅在经过评审的协议变更后才重新生成：
+  `go test ./pkg/license -run TestGenerateCrossImplVectors -update`。对任何已提交
+  向量的改动都是破坏性 wire 变更（§12）。
