@@ -82,7 +82,7 @@ jobs:
       # (total 93 / per-package 88) are the enforced floors and sit below the
       # measured numbers with margin for macOS/Linux platform-file variance.
       - name: go test + coverage gate (GTR)
-        uses: soulteary/go-test-report-action@92d333b2adb625436dc9eec7e7335c2af5db61c8 # v1.0.0
+        uses: soulteary/go-test-report-action@a5e77d563843af6c7a0cc3c573640fc2cd94934a # v1.1.0
         with:
           packages: "./cmd/... ./internal/... ./pkg/..."
           race: "true"
@@ -289,7 +289,7 @@ jobs:
       # exercises the same SBOM path the real release runs. Pinned to the same
       # SHA as release.yml; CI-only, never in the runtime dependency graph.
       - name: Install syft (SBOM generator)
-        uses: anchore/sbom-action/download-syft@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
+        uses: anchore/sbom-action/download-syft@aa80c8c5bd439a416a62804f2151ab38c671a638 # v0.24.1
 
       # Exercise the full release pipeline on every push/PR WITHOUT publishing,
       # so packaging regressions are caught before a tag is cut. --snapshot needs
@@ -375,7 +375,7 @@ jobs:
       # Regenerate .github/go-test-report.md, .github/coverage.svg, and
       # .github/go-test-report.json in-tree WITHOUT committing.
       - name: go test report (GTR, no write-back)
-        uses: soulteary/go-test-report-action@92d333b2adb625436dc9eec7e7335c2af5db61c8 # v1.0.0
+        uses: soulteary/go-test-report-action@a5e77d563843af6c7a0cc3c573640fc2cd94934a # v1.1.0
         with:
           packages: "./cmd/... ./internal/... ./pkg/..."
           race: "true"
