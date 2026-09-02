@@ -7,7 +7,7 @@ Related docs: [README](./README.md) · [architecture](./architecture.md) · [per
 > **Note.** The environment of record and coverage figures in the generated
 > block below both come from
 > [`.github/go-test-report.json`](../../.github/go-test-report.json), the single
-> machine-readable source of truth, via `scripts/generate-quality-docs.sh`. The
+> machine-readable source of truth, via `ci-recipes grantseal generate-quality-docs`. The
 > surrounding prose is maintained by hand.
 
 The environment of record (commit, generated time, Go version, OS/arch) and the
@@ -18,7 +18,7 @@ and fails on any diff). Test command:
 `go test ./cmd/... ./internal/... ./pkg/... -covermode=atomic -coverprofile=coverage.out`.
 
 <!-- BEGIN:GENERATED-COVERAGE -->
-<!-- Generated from .github/go-test-report.json by scripts/generate-quality-docs.sh. Do not edit by hand. -->
+<!-- Generated from .github/go-test-report.json by ci-recipes grantseal generate-quality-docs. Do not edit by hand. -->
 
 ## Environment of record
 

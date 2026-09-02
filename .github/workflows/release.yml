@@ -33,6 +33,9 @@ concurrency:
 permissions:
   contents: read
 
+env:
+  CI_RECIPES_VERSION: 5f68a250b274f4673879e219c9906a91f594dd1e
+
 jobs:
   # Resolve the ONE tag this run releases, regardless of which event triggered
   # it, and expose it (with and without the leading `v`) to every downstream
@@ -96,6 +99,13 @@ jobs:
           go-version-file: 'go.mod'
           check-latest: false
 
+      - name: install CI recipes
+        env:
+          GOBIN: ${{ runner.temp }}/ci-recipes-bin
+        run: |
+          go install "github.com/soulteary/ci-recipes/cmd/ci-recipes@${CI_RECIPES_VERSION}"
+          echo "${GOBIN}" >> "${GITHUB_PATH}"
+
       - name: gofmt
         run: |
           unformatted="$(gofmt -l .)"
@@ -119,7 +129,7 @@ jobs:
           done
 
       - name: sensitive files
-        run: bash scripts/check-sensitive-files.sh .
+        run: ci-recipes grantseal check-sensitive-files .
 
       # Pinned to an explicit release tag (not a floating latest) so the
       # pre-release scan
@@ -129,11 +139,6 @@ jobs:
 
       - name: govulncheck ./...
         run: govulncheck ./...
-
-      # Prove the release allowlist gate still rejects planted material before we
-      # rely on it below (P1-4 self-test).
-      - name: archive/image allowlist gate self-test
-        run: bash scripts/check-archive-allowlist-selftest.sh
 
   # -------------------------------------------------------------------------
   # Atomic release (P1-3): BUILD -> VERIFY (same bytes) -> PUBLISH -> ATTEST.
@@ -196,6 +201,13 @@ jobs:
         with:
           go-version-file: 'go.mod'
           check-latest: false
+
+      - name: Install CI recipes
+        env:
+          GOBIN: ${{ runner.temp }}/ci-recipes-bin
+        run: |
+          go install "github.com/soulteary/ci-recipes/cmd/ci-recipes@${CI_RECIPES_VERSION}"
+          echo "${GOBIN}" >> "${GITHUB_PATH}"
 
       # QEMU + buildx enable multi-arch (amd64 + arm64) image builds.
       - name: Set up QEMU
@@ -270,13 +282,13 @@ jobs:
           cat "$RUNNER_TEMP/pre-publish.sha256"
 
       - name: verify release archive allowlist
-        run: bash scripts/check-archive-allowlist.sh dist
+        run: ci-recipes grantseal check-archive-allowlist dist
 
       # Validate the FINAL container image contents, not just the tar.gz / zip
       # archives. goreleaser leaves the per-arch images loaded locally; inspect
       # the amd64 image built on THIS runner. It must contain only the app binary
       # + legal files on top of the pinned distroless base (exact-path allowlist;
-      # see scripts/check-archive-allowlist.sh). Pin to the exact version tag
+      # enforced by ci-recipes). Pin to the exact version tag
       # (soulteary/grantseal:1.2.3-amd64), not the floating latest-amd64, so a
       # missing local build fails loudly instead of silently inspecting a stale
       # registry image.
@@ -292,7 +304,7 @@ jobs:
             echo "docker engine before this check runs." >&2
             exit 1
           fi
-          bash scripts/check-archive-allowlist.sh --image "$image"
+          ci-recipes grantseal check-archive-allowlist --image "$image"
 
       # Pipeline self-test (P1-4): copy a real archive, inject a stray file, and
       # assert the allowlist check FAILS on it. This proves the gate that guards
@@ -310,7 +322,7 @@ jobs:
           tar -xzf "$src" -C "$work"
           echo "PLANTED" > "$work/private.key"
           ( cd "$work" && tar -czf "$tamper_dir/tampered.tar.gz" . )
-          if bash scripts/check-archive-allowlist.sh "$tamper_dir"; then
+          if ci-recipes grantseal check-archive-allowlist "$tamper_dir"; then
             echo "error: allowlist accepted a tampered archive with private.key" >&2
             exit 1
           fi

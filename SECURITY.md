@@ -84,7 +84,7 @@ The isolation is a property you can verify, not a promise:
   [architecture](docs/enUS/architecture.md#envelope-format)).
 - CI scans the **final release archives** for private-key material (PEM
   private-key headers, `*-private.key` names) and enforces an **archive
-  allowlist** (`scripts/check-archive-allowlist.sh`) so only the intended files
+  allowlist** (`ci-recipes grantseal check-archive-allowlist`) so only the intended files
   ship and a key cannot be included by accident.
 
 ## Key lifecycle

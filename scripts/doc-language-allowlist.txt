@@ -1,6 +1,6 @@
 # doc-language-allowlist.txt
 #
-# Exemptions for scripts/check-doc-language.sh. Each non-comment line is:
+# Exemptions for ci-recipes grantseal check-doc-language. Each non-comment line is:
 #
 #   <path-suffix>|||<line-substring>
 #

@@ -11,6 +11,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Replaced repository-local CI policy Bash scripts and their shell self-tests
+  with the SHA-pinned `ci-recipes` Go CLI and its centralized unit tests.
+
 ## [1.1.0] - 2026-08-24
 
 No wire, error-code, CLI, or main-chain validation behavior changed relative to
