@@ -9,6 +9,9 @@ on:
 permissions:
   contents: read
 
+env:
+  CI_RECIPES_VERSION: 5f68a250b274f4673879e219c9906a91f594dd1e
+
 jobs:
   build-test:
     name: build & test (${{ matrix.os }})
@@ -96,11 +99,18 @@ jobs:
           go-version-file: 'go.mod'
           check-latest: false
 
+      - name: install CI recipes
+        env:
+          GOBIN: ${{ runner.temp }}/ci-recipes-bin
+        run: |
+          go install "github.com/soulteary/ci-recipes/cmd/ci-recipes@${CI_RECIPES_VERSION}"
+          echo "${GOBIN}" >> "${GITHUB_PATH}"
+
       # Changed-code coverage gate: a PR that adds a large chunk of untested code
       # can still clear the diluted repo-wide gate above, so additionally require
       # that changed (added/modified) non-test statements are >= 90% covered.
-      # The script is dependency-free (git + bash + python3, all CI-only); it
-      # computes the number from a fresh coverage profile + `git diff`. Skipped on
+      # The central Go recipe computes the number from a fresh coverage profile
+      # plus `git diff`. Skipped on
       # tag pushes (no meaningful PR base).
       - name: changed-code coverage gate (>=90%)
         if: github.event_name == 'pull_request'
@@ -109,7 +119,7 @@ jobs:
         run: |
           go test ./cmd/... ./internal/... ./pkg/... \
             -covermode=atomic -coverprofile=coverage.out >/dev/null
-          bash scripts/check-patch-coverage.sh coverage.out "$BASE_SHA" 90
+          ci-recipes grantseal check-patch-coverage coverage.out "$BASE_SHA" 90
 
       - name: upload raw test results
         if: always()
@@ -177,34 +187,28 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: install ripgrep
-        run: sudo apt-get update && sudo apt-get install -y ripgrep
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: 'go.mod'
+          check-latest: false
+          cache: false
+
+      - name: install CI recipes
+        env:
+          GOBIN: ${{ runner.temp }}/ci-recipes-bin
+        run: |
+          go install "github.com/soulteary/ci-recipes/cmd/ci-recipes@${CI_RECIPES_VERSION}"
+          echo "${GOBIN}" >> "${GITHUB_PATH}"
 
       - name: doc language (no unverifiable quality labels)
-        run: bash scripts/check-doc-language.sh .
+        run: ci-recipes grantseal check-doc-language .
 
       - name: doc consistency (no go-version matrix / stale code counts / drift)
-        run: bash scripts/check-doc-consistency.sh .
-
-      - name: doc-consistency gate self-test
-        run: bash scripts/check-doc-consistency-selftest.sh
+        run: ci-recipes grantseal check-doc-consistency .
 
       - name: sensitive files (no private keys in tree)
-        # Full-tree audit; the script excludes the committed example keys/ dir
-        # and its own scripts/ dir to avoid false positives.
-        run: bash scripts/check-sensitive-files.sh .
-
-      - name: sensitive-file scanner self-test
-        run: bash scripts/check-sensitive-files-selftest.sh
-
-      - name: patch-coverage gate self-test
-        run: bash scripts/check-patch-coverage-selftest.sh
-
-      - name: write-back allowlist gate self-test
-        run: bash scripts/check-writeback-allowlist-selftest.sh
-
-      - name: archive/image allowlist gate self-test
-        run: bash scripts/check-archive-allowlist-selftest.sh
+        # Full-tree audit; the recipe excludes committed example keys.
+        run: ci-recipes grantseal check-sensitive-files .
 
       # Regenerate the coverage-derived blocks in docs/*/quality.md from the
       # committed .github/go-test-report.json and fail if they drift. This makes
@@ -212,10 +216,10 @@ jobs:
       # truth rather than hand-typed numbers that can silently rot.
       - name: quality docs are in sync with the coverage source
         run: |
-          bash scripts/generate-quality-docs.sh
+          ci-recipes grantseal generate-quality-docs
           if ! git diff --exit-code -- docs/enUS/quality.md docs/zhCN/quality.md; then
             echo "::error::docs/*/quality.md GENERATED-COVERAGE blocks are stale." \
-              "Run scripts/generate-quality-docs.sh and commit the result." >&2
+              "Run ci-recipes grantseal generate-quality-docs and commit the result." >&2
             exit 1
           fi
 
@@ -283,6 +287,13 @@ jobs:
           go-version-file: 'go.mod'
           check-latest: false
 
+      - name: install CI recipes
+        env:
+          GOBIN: ${{ runner.temp }}/ci-recipes-bin
+        run: |
+          go install "github.com/soulteary/ci-recipes/cmd/ci-recipes@${CI_RECIPES_VERSION}"
+          echo "${GOBIN}" >> "${GITHUB_PATH}"
+
       # The .goreleaser.yaml `sboms:` stanza shells out to syft, which is a hard
       # dependency: goreleaser fails (not skips) when syft is absent from PATH,
       # even in --snapshot mode. Install the pinned syft here so this job
@@ -320,7 +331,7 @@ jobs:
           args: release --snapshot --clean --skip=sign,docker
 
       - name: verify snapshot archive allowlist
-        run: bash scripts/check-archive-allowlist.sh dist
+        run: ci-recipes grantseal check-archive-allowlist dist
 
       # Guard against a GoReleaser regression that pollutes checksums.txt with
       # its own signature/certificate entries (goreleaser #6508/#6514:
@@ -389,18 +400,25 @@ jobs:
           go-version-file: 'go.mod'
           check-latest: false
 
+      - name: install CI recipes
+        env:
+          GOBIN: ${{ runner.temp }}/ci-recipes-bin
+        run: |
+          go install "github.com/soulteary/ci-recipes/cmd/ci-recipes@${CI_RECIPES_VERSION}"
+          echo "${GOBIN}" >> "${GITHUB_PATH}"
+
       # Stamp the environment of record (commit / time / Go version / OS-arch)
       # into the report JSON so the quality docs render it from the single
       # machine-readable source of truth instead of hand-typed prose that drifts.
       - name: inject environment of record into report JSON
         env:
           REPORT_COMMIT: ${{ github.sha }}
-        run: bash scripts/inject-report-environment.sh
+        run: ci-recipes grantseal inject-report-environment
 
       # Regenerate the coverage-derived doc blocks from the freshly stamped JSON
       # so the committed docs match the report that ships with this commit.
       - name: regenerate quality docs from report JSON
-        run: bash scripts/generate-quality-docs.sh
+        run: ci-recipes grantseal generate-quality-docs
 
       # Hand only the report artifacts to the write-back job. The downstream job
       # restores exactly these paths, so nothing else can enter the commit.
@@ -433,6 +451,19 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: 'go.mod'
+          check-latest: false
+          cache: false
+
+      - name: install CI recipes
+        env:
+          GOBIN: ${{ runner.temp }}/ci-recipes-bin
+        run: |
+          go install "github.com/soulteary/ci-recipes/cmd/ci-recipes@${CI_RECIPES_VERSION}"
+          echo "${GOBIN}" >> "${GITHUB_PATH}"
+
       - name: download generated report artifacts
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
@@ -450,7 +481,7 @@ jobs:
             docs/enUS/quality.md \
             docs/zhCN/quality.md
           # Fail closed if anything outside the report allowlist got staged.
-          bash scripts/check-writeback-allowlist.sh
+          ci-recipes grantseal check-writeback-allowlist
           if git diff --cached --quiet; then
             echo "report unchanged; nothing to commit"
             exit 0

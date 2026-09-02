@@ -14,6 +14,9 @@ on:
 permissions:
   contents: read
 
+env:
+  CI_RECIPES_VERSION: 5f68a250b274f4673879e219c9906a91f594dd1e
+
 jobs:
   report-card-generate:
     name: report card (generate, no write)
@@ -75,6 +78,19 @@ jobs:
         with:
           ref: ${{ github.event.repository.default_branch }}
 
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: 'go.mod'
+          check-latest: false
+          cache: false
+
+      - name: install CI recipes
+        env:
+          GOBIN: ${{ runner.temp }}/ci-recipes-bin
+        run: |
+          go install "github.com/soulteary/ci-recipes/cmd/ci-recipes@${CI_RECIPES_VERSION}"
+          echo "${GOBIN}" >> "${GITHUB_PATH}"
+
       - name: download generated badge artifacts
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
@@ -87,7 +103,7 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -- .github/goreportcard.svg .github/goreportcard-report.md
           # Fail closed if anything outside the report allowlist got staged.
-          bash scripts/check-writeback-allowlist.sh
+          ci-recipes grantseal check-writeback-allowlist
           if git diff --cached --quiet; then
             echo "badge unchanged; nothing to commit"
             exit 0
