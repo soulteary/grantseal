@@ -300,7 +300,7 @@ jobs:
       # exercises the same SBOM path the real release runs. Pinned to the same
       # SHA as release.yml; CI-only, never in the runtime dependency graph.
       - name: Install syft (SBOM generator)
-        uses: anchore/sbom-action/download-syft@aa80c8c5bd439a416a62804f2151ab38c671a638 # v0.24.1
+        uses: anchore/sbom-action/download-syft@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26 # v0.24.2
 
       # Exercise the full release pipeline on every push/PR WITHOUT publishing,
       # so packaging regressions are caught before a tag is cut. --snapshot needs
