@@ -22,9 +22,9 @@ and fails on any diff). Test command:
 
 ## Environment of record
 
-- Commit: `96348c16d652223b34a7bd9ce0b309ad67992f75`
-- Generated (UTC): `2026-09-09T02:53:45Z`
-- Go version: `go1.26.7`
+- Commit: `96c736077784f504528d488ad66d0f1fc830b334`
+- Generated (UTC): `2026-09-21T17:09:45Z`
+- Go version: `go1.26.8`
 - OS / arch: `linux/amd64`
 
 These values come from the `environment` block of `.github/go-test-report.json`, the single machine-readable source of truth, so they cannot drift from the recorded run.
