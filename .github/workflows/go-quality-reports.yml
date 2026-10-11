@@ -171,6 +171,7 @@ jobs:
         env:
           REPORT_COMMIT: ${{ steps.source.outputs.sha }}
       - name: Upload stable reports
+        if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: go-quality-stable-${{ github.run_id }}-${{ github.run_attempt }}
