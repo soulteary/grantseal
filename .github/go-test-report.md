@@ -8,7 +8,7 @@
 | Passed | 465 |
 | Failed | 0 |
 | Skipped | 1 |
-| Coverage | 95.18% |
+| Coverage | 95.14% |
 | Threshold | 93.00% |
 
 ### Packages
@@ -18,4 +18,4 @@
 | cmd/license-tool | pass | 109 | 0 | 93.16% |
 | internal/issuer | pass | 63 | 0 | 93.23% |
 | pkg/fingerprint | pass | 40 | 0 | 96.72% |
-| pkg/license | pass | 254 | 0 | 96.30% |
+| pkg/license | pass | 254 | 0 | 96.22% |

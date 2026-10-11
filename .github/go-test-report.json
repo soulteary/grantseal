@@ -1,9 +1,9 @@
 {
   "schema_version": "1.0",
   "environment": {
-    "commit": "96c736077784f504528d488ad66d0f1fc830b334",
-    "generated_at": "2026-09-21T17:09:45Z",
-    "go_version": "go1.26.8",
+    "commit": "3dde696f3525c42844bf8f0f7b5897e8f2fa4c87",
+    "generated_at": "2026-10-11T12:28:31Z",
+    "go_version": "go1.27.2",
     "os": "linux",
     "arch": "amd64"
   },
@@ -14,9 +14,9 @@
     "skipped": 1
   },
   "coverage": {
-    "covered_statements": 2035,
+    "covered_statements": 2034,
     "total_statements": 2138,
-    "percentage": 95.18,
+    "percentage": 95.14,
     "threshold": 93
   },
   "packages": [
@@ -46,7 +46,7 @@
       "status": "pass",
       "tests": 254,
       "failed": 0,
-      "coverage": 96.3
+      "coverage": 96.22
     }
   ],
   "failures": null
