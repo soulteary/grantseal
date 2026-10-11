@@ -23,3 +23,5 @@ Raw profiles/test logs are artifacts, never committed.
 The same validated report also refreshes `docs/enUS/quality.md` and
 `docs/zhCN/quality.md`; these two files extend the stable writeback allowlist.
 Changed-code coverage reuses GTR's raw profile and retains its 90% gate.
+
+Published releases with a CI skip annotation use the release-event fallback. Ordinary releases use the tag-push report run; the release gate skips duplicate tests. Stable artifacts containing only reports under `.github` are downloaded into that directory explicitly; mixed report/document artifacts retain the repository hierarchy.
