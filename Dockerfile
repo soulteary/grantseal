@@ -10,8 +10,8 @@
 # the image.
 
 # ---- builder ----
-# Pinned by digest for reproducible, tamper-evident builds. Tag: golang:1.26
-FROM golang:1.26@sha256:45a5f7a810238aabcbad211d70b9ae082022d96f7c7259e94041ad1b933575ac AS builder
+# Pinned by digest for reproducible, tamper-evident builds. Tag: golang:1.27.2
+FROM golang:1.27.2@sha256:5bc7f572bbaa98885a3a1fd9c0aa76b59e3e14e8628bfc316bbfd0c701e4818c AS builder
 
 WORKDIR /src
 

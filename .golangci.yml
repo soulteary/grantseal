@@ -9,7 +9,7 @@ version: "2"
 
 run:
   # Match the module's Go version so analyzers reason about the right stdlib.
-  go: "1.26"
+  go: "1.27"
   timeout: 5m
   tests: true
 
