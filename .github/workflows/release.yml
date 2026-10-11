@@ -546,6 +546,7 @@ jobs:
   report_release:
     name: Dispatch verified release reports
     needs: [setup, release]
+    if: github.event_name != 'release'
     runs-on: ubuntu-latest
     permissions:
       contents: read
