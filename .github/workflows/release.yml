@@ -34,7 +34,7 @@ permissions:
   contents: read
 
 env:
-  CI_RECIPES_VERSION: 5f68a250b274f4673879e219c9906a91f594dd1e
+  CI_RECIPES_VERSION: 6a8f35563b46c88e99a14ac0f287929eba5d1418
 
 jobs:
   # Resolve the ONE tag this run releases, regardless of which event triggered

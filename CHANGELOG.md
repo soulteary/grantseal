@@ -11,7 +11,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.2] - 2026-10-11
+
 ### Changed
+
+- Build release artifacts with Go 1.27.2 and refresh pinned CI tooling.
+
+### Fixed
+
+- Recognize the pinned base image timezone link and Docker exported empty
+  console placeholder in the centralized image allowlist, while retaining
+  rejection of unexpected files and link targets.
+
+Version 1.1.1 was reserved by an unpublished release attempt; its image
+allowlist gate rejected these base/runtime entries before publishing.
+
+### CI
 
 - Replaced repository-local CI policy Bash scripts and their shell self-tests
   with the SHA-pinned `ci-recipes` Go CLI and its centralized unit tests.
