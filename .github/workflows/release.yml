@@ -231,7 +231,7 @@ jobs:
           cosign-release: v3.1.3
 
       - name: Install syft (SBOM generator)
-        uses: anchore/sbom-action/download-syft@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26 # v0.24.2
+        uses: anchore/sbom-action/download-syft@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
 
       # ---- BUILD (no publish): exact artifacts, nothing pushed/visible --------
       # `--skip=publish` disables the GitHub Release, all image pushes (including
@@ -241,7 +241,7 @@ jobs:
       # `--skip=sign` here because keyless signing must not run until publish
       # time (it also needs the artifacts to be the final, pushed ones).
       - name: goreleaser build (no publish)
-        uses: goreleaser/goreleaser-action@f06c13b6b1a9625abc9e6e439d9c05a8f2190e94 # v7.2.3
+        uses: goreleaser/goreleaser-action@a4f02ab5355a589de60d917a659ce617ed19b3de # v7.3.0
         with:
           # Pin the GoReleaser CLI to an explicit v2 tag instead of the floating
           # "~> v2" constraint so the published release is reproducible.
@@ -404,7 +404,7 @@ jobs:
       # assets onto it (replace_existing_artifacts handles a re-run). COSIGN_YES
       # answers the Fulcio/Rekor consent prompt.
       - name: goreleaser publish (release + signed push)
-        uses: goreleaser/goreleaser-action@f06c13b6b1a9625abc9e6e439d9c05a8f2190e94 # v7.2.3
+        uses: goreleaser/goreleaser-action@a4f02ab5355a589de60d917a659ce617ed19b3de # v7.3.0
         with:
           version: v2.17.1
           args: release --clean
