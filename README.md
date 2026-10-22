@@ -2,7 +2,7 @@
 
 ![](.github/grantseal-banner.jpg)
 
-[![CI](https://github.com/soulteary/grantseal/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/soulteary/grantseal/actions/workflows/ci.yml) [![Release](https://github.com/soulteary/grantseal/actions/workflows/release.yml/badge.svg)](https://github.com/soulteary/grantseal/actions/workflows/release.yml) [![Go Report Card](./.github/goreportcard.svg)](./.github/goreportcard-report.md) [![Coverage](./.github/coverage.svg)](./.github/go-test-report.md) [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](./LICENSE) [![Go Version](https://img.shields.io/badge/go-1.27.2-00ADD8.svg)](https://go.dev/)
+[![CI](https://github.com/soulteary/grantseal/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/soulteary/grantseal/actions/workflows/ci.yml) [![Release](https://github.com/soulteary/grantseal/actions/workflows/release.yml/badge.svg)](https://github.com/soulteary/grantseal/actions/workflows/release.yml) [![Go Report Card](./.github/goreportcard.svg)](./.github/goreportcard-report.md) [![Coverage](./.github/coverage.svg)](./.github/go-test-report.md) [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](./LICENSE) [![Go Version](https://img.shields.io/badge/go-1.27.3-00ADD8.svg)](https://go.dev/)
 
 [English](#english) | [简体中文](#简体中文) — full docs: [English](./docs/enUS/README.md) | [中文文档](./docs/zhCN/README.md) — [Changelog](./CHANGELOG.md)
 
@@ -11,7 +11,7 @@
 ## English
 
 `grantseal` is an **offline software licensing** library and CLI written in
-Go 1.27.2 using **only the standard library** (`crypto/ed25519`, `crypto/rand`,
+Go 1.27.3 using **only the standard library** (`crypto/ed25519`, `crypto/rand`,
 `crypto/sha256`, `crypto/hmac`, `crypto/subtle`, `encoding/json`). No third-party
 dependencies. It issues Ed25519-signed licenses on the issuer side and verifies
 them client-side with a **fail-closed**, never-panicking verifier.
@@ -285,7 +285,7 @@ jq '.metadata.component.name, (.components // [] | length)' \
 
 ## 简体中文
 
-`grantseal` 是使用 Go 1.27.2 **纯标准库**（`crypto/ed25519`、`crypto/rand`、
+`grantseal` 是使用 Go 1.27.3 **纯标准库**（`crypto/ed25519`、`crypto/rand`、
 `crypto/sha256`、`crypto/hmac`、`crypto/subtle`、`encoding/json`）实现的**离线软件
 授权**库与 CLI，不引入任何第三方依赖。它在签发端生成 Ed25519 签名的授权文件，在
 客户端以 **fail-closed**、对受支持入口返回错误而非 panic 的验证器进行校验。

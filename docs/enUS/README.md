@@ -5,7 +5,7 @@
 Related docs: [architecture](./architecture.md) · [quality & coverage](./quality.md) · [performance](./performance.md) · [security](../../SECURITY.md)
 
 grantseal is an offline software licensing library and CLI built with
-Go 1.27.2 and **only the standard library**. It issues, verifies, and manages
+Go 1.27.3 and **only the standard library**. It issues, verifies, and manages
 Ed25519-signed licenses with device binding, feature/limit gating, expiry with
 grace periods, clock-rollback detection, and signed revocation lists. Its goal
 is to raise the cost of forgery and offline tampering — not to make software
