@@ -6,7 +6,7 @@ Thanks for your interest in improving grantseal.
 
 ## Ground rules
 
-- **Go 1.27.2, standard library only.** Do not add third-party dependencies. The
+- **Go 1.27.3, standard library only.** Do not add third-party dependencies. The
   crypto surface is intentionally limited to `crypto/ed25519`, `crypto/rand`,
   `crypto/sha256`, `crypto/hmac`, `crypto/subtle`, and `encoding/json`.
 - **Never commit private keys** or any secret. Tests must generate ephemeral
