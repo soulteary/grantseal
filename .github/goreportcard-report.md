@@ -11,8 +11,8 @@
 
 | Check | Score |
 | ----- | ----- |
-| gofmt | 100% |
 | go_vet | 100% |
+| gofmt | 100% |
 | ineffassign | 100% |
 | gocyclo | 95% |
 | license | 100% |
@@ -22,14 +22,14 @@
 
 ### gocyclo
 
+- `pkg/fingerprint/scheme.go`
+  - Line 116: cyclomatic complexity 16 for function Parse
 - `pkg/license/vectors_test.go`
   - Line 122: cyclomatic complexity 22 for function assertVector
 - `cmd/license-tool/verify.go`
   - Line 13: cyclomatic complexity 18 for function cmdVerify
 - `pkg/license/revocation_state_mem_test.go`
   - Line 23: cyclomatic complexity 16 for function TestMemRevocationStateStoreSaveRoundTrip
-- `pkg/fingerprint/scheme.go`
-  - Line 116: cyclomatic complexity 16 for function Parse
 
 ---
 
