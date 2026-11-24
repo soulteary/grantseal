@@ -10,8 +10,8 @@
 # the image.
 
 # ---- builder ----
-# Pinned by digest for reproducible, tamper-evident builds. Tag: golang:1.27.3
-FROM golang:1.27.3@sha256:f20d83a83e18dbd2a4714b8ffd4b30b287b6243962dd75608e86abcc63ba4efc AS builder
+# Pinned by digest for reproducible, tamper-evident builds. Tag: golang:1.27.4@sha256:5f1b98fa02fe396ebce2a0227a0e08309e11792915b9dd2e1f71053d7e7e6666
+FROM golang:1.27.4@sha256:5f1b98fa02fe396ebce2a0227a0e08309e11792915b9dd2e1f71053d7e7e6666 AS builder
 
 WORKDIR /src
 
@@ -28,7 +28,7 @@ RUN go build -trimpath -ldflags "-s -w -X main.version=${VERSION}" -o /out/licen
 # See docker/Dockerfile.goreleaser and the ci-recipes archive allowlist: the
 # base allowlist is scoped to exactly this digest and MUST be re-reviewed on any
 # base bump.
-FROM gcr.io/distroless/static-debian13:nonroot@sha256:1c2c046bc09ed40fad370b599a0b1ae7987f55b01e247cf27a7c27cd97e5bbc7
+FROM gcr.io/distroless/static-debian13:nonroot@sha256:8ce6dd87e9823c5b48dcfb2c8604714ccb351ce59607327bcc4957448da279b5
 
 COPY --from=builder /out/license-tool /license-tool
 
